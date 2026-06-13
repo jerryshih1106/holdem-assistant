@@ -27,13 +27,6 @@ ACCENT = '#2F81F7'
 BORDER = '#1E1E28'
 SEL    = '#1A5CC8'
 
-FELT_BG      = '#091409'
-FELT_LINE    = '#183218'
-SEAT_NORMAL  = '#16161E'
-SEAT_HERO    = '#1A3566'
-SEAT_OPENER  = '#3A2800'
-SEAT_LBL     = '#8ABADF'
-
 BAR_RAISE    = '#B05018'
 BAR_CALL     = '#1A5A8A'
 BAR_FOLD     = '#2A3040'
@@ -42,19 +35,6 @@ BAR_SEL_OUT  = '#FFFFFF'
 # ── 位置 ──────────────────────────────────────────────────────────────────────
 POSITIONS_6 = ['UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB']
 POSITIONS_9 = ['UTG', 'UTG1', 'UTG2', 'LJ', 'HJ', 'CO', 'BTN', 'SB', 'BB']
-
-# 橢圓牌桌座位座標 (pos, x, y) — canvas 280×110
-_SEATS_6 = [
-    ('BTN', 140,  14),
-    ('CO',  228,  36),
-    ('HJ',  228,  76),
-    ('UTG', 140,  98),
-    ('BB',   52,  76),
-    ('SB',   52,  36),
-]
-_SEATS_9_EXTRA = {
-    'UTG1': (186, 100), 'UTG2': (228,  98), 'LJ': (228, 58),
-}
 
 # ── Scenario 對照表 ────────────────────────────────────────────────────────────
 _SCENARIO_MAP: Dict[tuple, str] = {
@@ -188,7 +168,7 @@ class RangePanel:
         self._freq_view:   Optional[str] = None   # 'raise'/'call'/'fold'/None
 
         self._build_table_toggle()
-        self._build_oval_table()
+        self._build_position_selector()
         self._build_freq_bars()
         self._sep()
         self._build_hand_filter()
@@ -237,136 +217,88 @@ class RangePanel:
         self._btn_9max.config(bg=SEL    if table == '9max' else BG3,
                                fg='#FFF' if table == '9max' else DIM)
         self._opener = self._three_bet = None
-        self._redraw_seats()
+        self._update_pos_buttons()
         self._refresh()
 
     def _positions(self):
         return POSITIONS_9 if self._table == '9max' else POSITIONS_6
 
     # ══════════════════════════════════════════════════════════════
-    # 橢圓牌桌 + 座位
+    # 位置選擇（兩列按鈕）
     # ══════════════════════════════════════════════════════════════
 
-    def _build_oval_table(self):
-        outer = tk.Frame(self._win, bg=BG2, pady=4)
+    def _build_position_selector(self):
+        outer = tk.Frame(self._win, bg=BG2)
         outer.pack(fill='x', padx=4, pady=(4, 0))
+
+        # Hero 位置列
+        row1 = tk.Frame(outer, bg=BG2)
+        row1.pack(fill='x', padx=8, pady=(4, 2))
+        tk.Label(row1, text='我方', bg=BG2, fg=DIM,
+                 font=('Consolas', 8), width=4, anchor='e').pack(side='left', padx=(0, 4))
+        self._hero_btns: dict = {}
+        for pos in POSITIONS_6:
+            b = tk.Button(row1, text=pos, width=4, bg=BG3, fg=DIM,
+                          font=('Consolas', 8), relief='flat', cursor='hand2',
+                          command=lambda p=pos: self._select_hero(p))
+            b.pack(side='left', padx=1)
+            self._hero_btns[pos] = b
+
+        # 開牌者列
+        row2 = tk.Frame(outer, bg=BG2)
+        row2.pack(fill='x', padx=8, pady=(0, 4))
+        tk.Label(row2, text='開牌', bg=BG2, fg=DIM,
+                 font=('Consolas', 8), width=4, anchor='e').pack(side='left', padx=(0, 4))
+        self._opener_btns: dict = {}
+        b0 = tk.Button(row2, text='無', width=4, bg=SEL, fg=FG,
+                       font=('Consolas', 8), relief='flat', cursor='hand2',
+                       command=lambda: self._select_opener(None))
+        b0.pack(side='left', padx=1)
+        self._opener_btns[None] = b0
+        for pos in POSITIONS_6:
+            b = tk.Button(row2, text=pos, width=4, bg=BG3, fg=DIM,
+                          font=('Consolas', 8), relief='flat', cursor='hand2',
+                          command=lambda p=pos: self._select_opener(p))
+            b.pack(side='left', padx=1)
+            self._opener_btns[pos] = b
 
         # 情境說明列
         self._scenario_lbl = tk.Label(
-            outer, text='點擊座位選擇位置', bg=BG2, fg=DIM,
+            outer, text='', bg=BG2, fg=DIM,
             font=('Consolas', 9, 'bold'), anchor='w')
         self._scenario_lbl.pack(fill='x', padx=8, pady=(0, 4))
 
-        # 牌桌畫布
-        self._table_canvas = tk.Canvas(
-            outer, width=280, height=110,
-            bg=BG2, highlightthickness=0)
-        self._table_canvas.pack()
+        self._update_pos_buttons()
 
-        # 氈面橢圓
-        cx, cy, rx, ry = 140, 55, 105, 40
-        self._table_canvas.create_oval(
-            cx-rx, cy-ry, cx+rx, cy+ry,
-            fill=FELT_BG, outline=FELT_LINE, width=3)
-        self._table_canvas.create_oval(
-            cx-rx+8, cy-ry+6, cx+rx-8, cy+ry-6,
-            fill='', outline='#0F200F', width=1)
-
-        # 莊家籌碼（D）
-        self._dealer_chip = self._table_canvas.create_text(
-            158, 14, text='D', fill='#A08018',
-            font=('Consolas', 6, 'bold'))
-
-        # 座位橢圓
-        self._seat_ovals: dict = {}
-        for (pos, sx, sy) in _SEATS_6:
-            tag = f'seat_{pos}'
-            ov = self._table_canvas.create_oval(
-                sx-18, sy-10, sx+18, sy+10,
-                fill=SEAT_NORMAL, outline='#2A3A4A', width=1, tags=tag)
-            tx = self._table_canvas.create_text(
-                sx, sy, text=pos,
-                fill=SEAT_LBL, font=('Consolas', 7, 'bold'), tags=tag)
-            self._table_canvas.tag_bind(tag, '<Button-1>',
-                lambda e, p=pos: self._on_seat_click(p))
-            self._table_canvas.tag_bind(tag, '<Button-3>',
-                lambda e, p=pos: self._on_seat_right_click(p))
-            self._table_canvas.tag_bind(tag, '<Control-Button-1>',
-                lambda e, p=pos: self._on_seat_right_click(p))
-            self._table_canvas.tag_bind(tag, '<Enter>',
-                lambda e, p=pos: self._on_seat_hover(p, True))
-            self._table_canvas.tag_bind(tag, '<Leave>',
-                lambda e, p=pos: self._on_seat_hover(p, False))
-            self._seat_ovals[pos] = (ov, tx)
-
-        # 清除按鈕（右側）
-        tk.Button(outer, text='重置', bg=BG3, fg=DIM,
-                  font=('Consolas', 7), relief='flat', cursor='hand2',
-                  command=self._reset_tree).pack(side='right', padx=8, pady=2)
-
-        # 開牌者說明列
-        self._opener_lbl = tk.Label(
-            outer, text='左鍵=選自己  右鍵/Ctrl+左鍵=選開牌者',
-            bg=BG2, fg='#3A4A5A', font=('Consolas', 6), anchor='w')
-        self._opener_lbl.pack(fill='x', padx=8)
-
-        self._redraw_seats()
-
-    def _on_seat_click(self, pos: str):
-        """左鍵：設 Hero 位置，並更新行動。"""
+    def _select_hero(self, pos: str):
+        self._hero_pos = pos
         if self._opener is None:
-            self._hero_pos    = pos
             self._hero_action = 'open'
-        elif pos == self._hero_pos:
-            # 再點自己：切換 open / call
-            self._hero_action = 'call' if self._hero_action == 'open' else 'open'
         else:
-            self._hero_pos    = pos
             self._hero_action = 'call'
-        self._redraw_seats()
+        self._update_pos_buttons()
         self._refresh()
 
-    def _on_seat_right_click(self, pos: str):
-        """右鍵：設此座位為開牌者。"""
-        if pos != self._hero_pos:
-            self._opener      = pos
-            self._three_bet   = None
-            self._hero_action = 'call'
-        else:
-            self._opener = None
-        self._redraw_seats()
+    def _select_opener(self, pos):
+        self._opener = pos
+        self._three_bet = None
+        self._hero_action = 'open' if pos is None else 'call'
+        self._update_pos_buttons()
         self._refresh()
 
-    def _on_seat_hover(self, pos: str, entering: bool):
-        if pos not in self._seat_ovals:
-            return
-        ov, _ = self._seat_ovals[pos]
-        is_active = (pos == self._hero_pos or pos == self._opener)
-        if entering and not is_active:
-            self._table_canvas.itemconfig(ov, outline='#4A6A8A', width=2)
-        elif not entering and not is_active:
-            self._table_canvas.itemconfig(ov, outline='#2A3A4A', width=1)
-
-    def _redraw_seats(self):
-        for pos, (ov, tx) in self._seat_ovals.items():
-            if pos == self._hero_pos:
-                fill, outline, w, fg = SEAT_HERO, '#3A6ABF', 2, '#FFFFFF'
-            elif pos == self._opener:
-                fill, outline, w, fg = SEAT_OPENER, '#A06018', 2, '#D09030'
-            else:
-                fill, outline, w, fg = SEAT_NORMAL, '#2A3A4A', 1, SEAT_LBL
-            self._table_canvas.itemconfig(ov, fill=fill, outline=outline, width=w)
-            self._table_canvas.itemconfig(tx, fill=fg)
-
-        # 莊家籌碼跟著 BTN（如果 hero 是 BTN 就變暗）
-        d_col = '#806010' if self._hero_pos == 'BTN' else '#A08018'
-        self._table_canvas.itemconfig(self._dealer_chip, fill=d_col)
+    def _update_pos_buttons(self):
+        for pos, btn in self._hero_btns.items():
+            sel = (pos == self._hero_pos)
+            btn.config(bg=SEL if sel else BG3, fg=FG if sel else DIM)
+        for pos, btn in self._opener_btns.items():
+            sel = (pos == self._opener)
+            btn.config(bg=SEL if sel else BG3, fg=FG if sel else DIM)
 
     def _reset_tree(self):
         self._opener = self._three_bet = None
         self._hero_action = 'open'
         self._freq_view   = None
-        self._redraw_seats()
+        self._update_pos_buttons()
         self._refresh()
 
     # ══════════════════════════════════════════════════════════════
@@ -749,7 +681,7 @@ class RangePanel:
     def set_hero_pos(self, pos: str):
         if pos in POSITIONS:
             self._hero_pos = pos
-            self._redraw_seats()
+            self._update_pos_buttons()
             self._refresh()
 
     def highlight_hand(self, hand: str):
@@ -764,7 +696,7 @@ class RangePanel:
                     self._hero_action = ha
                     self._opener      = op
                     self._three_bet   = tb
-                    self._redraw_seats()
+                    self._update_pos_buttons()
                     self._refresh()
                     return
 

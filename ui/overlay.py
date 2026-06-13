@@ -122,7 +122,20 @@ class PokerOverlay:
         self._cfg = config
         self._root = tk.Tk()
         self._root.title("德州撲克助手")
-        self._root.overrideredirect(True)
+
+        import sys as _sys
+        if _sys.platform == 'darwin':
+            # overrideredirect 在 macOS 會把視窗送到隱形圖層；
+            # 用 MacWindowStyle 'plain' + 'none' 實現無標題列但可見的視窗
+            try:
+                self._root.tk.call(
+                    '::tk::unsupported::MacWindowStyle',
+                    'style', self._root._w, 'plain', 'none')
+            except Exception:
+                pass  # 舊版 Tk 可能不支援，降級保持預設標題列
+        else:
+            self._root.overrideredirect(True)
+
         self._root.attributes("-topmost", True)
         self._root.attributes("-alpha", config.ui.overlay_opacity)
         self._root.configure(bg=BG)
@@ -161,6 +174,8 @@ class PokerOverlay:
         self._build_ui()
         self._bind_drag()
         self._bind_position_keys()
+        self._root.update_idletasks()
+        self._root.lift()
 
     # ═══════════════════════════════════════════════════════════════
     # 建立 UI
