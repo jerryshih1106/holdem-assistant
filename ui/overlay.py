@@ -128,7 +128,14 @@ class PokerOverlay:
             self._root.overrideredirect(True)
 
         self._root.attributes("-topmost", True)
-        self._root.attributes("-alpha", config.ui.overlay_opacity)
+        # macOS Tk 8.6.12 bug：init 期間設 alpha 會導致視窗永遠不顯示
+        # 延遲到 mainloop 開始後再套用
+        import sys as _sys_a
+        if _sys_a.platform == 'darwin':
+            self._root.after(200, lambda: self._root.attributes(
+                "-alpha", config.ui.overlay_opacity))
+        else:
+            self._root.attributes("-alpha", config.ui.overlay_opacity)
         self._root.configure(bg=BG)
         self._root.geometry(
             f"{config.ui.overlay_width}x{config.ui.overlay_height}"
