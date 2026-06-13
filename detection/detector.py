@@ -47,12 +47,15 @@ class CardDetector:
             return
         try:
             from ultralytics import YOLO
+            import sys
+            _is_mac = sys.platform == 'darwin'
+            self._device = 'cpu' if _is_mac else None
+
             self._model = YOLO(self._model_path)
-            # macOS: MPS (Metal) 在部分 ultralytics 版本會 segfault，強制 CPU
-            if os.uname().sysname == 'Darwin' if hasattr(os, 'uname') else False:
-                self._device = 'cpu'
-            else:
-                self._device = None  # ultralytics 自動選
+            if _is_mac:
+                # 載入後明確移到 CPU，避免 MPS auto-select 造成 Metal segfault
+                self._model.to('cpu')
+
             print(f"[Detector] Loaded model: {self._model_path} (device={self._device or 'auto'})")
         except Exception as e:
             print(f"[Detector] Failed to load model: {e}")

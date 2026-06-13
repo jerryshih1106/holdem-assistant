@@ -239,6 +239,11 @@ class HoldemAssistant:
         root.bind('<Escape>', lambda _: self._quit())
 
     def _bind_global_hotkeys(self):
+        # macOS: keyboard 用 CGEventTap，需要輔助使用權限，沒有則 C 層 SIGBUS
+        # 改用 tkinter bind（只在 overlay 有 focus 時作用，但不會 crash）
+        if sys.platform == 'darwin':
+            print('[Hotkey] macOS: 跳過 keyboard 全域快捷鍵（避免 CGEventTap crash）')
+            return
         try:
             import keyboard
             keyboard.add_hotkey('f7', lambda: self.overlay._root.after(0, self._force_detect))
