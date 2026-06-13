@@ -87,29 +87,54 @@ def capture_window(hwnd: int, region: Optional[Tuple[int,int,int,int]] = None) -
 
 
 def check_mac_screen_permission() -> bool:
-    """macOS：用 CGPreflightScreenCaptureAccess 確認螢幕錄製權限。
-    回傳 True=已授權，False=未授權。
-    沒授權時同時觸發系統請求彈窗讓使用者授權。
+    """macOS：確認螢幕錄製權限。
+    先用 CGPreflightScreenCaptureAccess，再用 Quartz 視窗數量二次驗證。
+    回傳 True=已授權，False=未授權（並自動開啟系統設定頁面）。
     """
     if not _IS_MAC:
         return True
+
+    cg_says_ok = True
     try:
         import ctypes, ctypes.util
         cg = ctypes.CDLL(ctypes.util.find_library('CoreGraphics'))
-        # CGPreflightScreenCaptureAccess：macOS 11+ 才有；回傳 bool
         cg.CGPreflightScreenCaptureAccess.restype = ctypes.c_bool
-        has_perm = cg.CGPreflightScreenCaptureAccess()
-        if not has_perm:
-            # 觸發系統授權彈窗（使用者點允許後需重啟 Terminal）
+        cg_says_ok = bool(cg.CGPreflightScreenCaptureAccess())
+        if not cg_says_ok:
             cg.CGRequestScreenCaptureAccess.restype = ctypes.c_bool
             cg.CGRequestScreenCaptureAccess()
-            print('[Capture] ⚠️  macOS 螢幕錄製權限未開啟！')
-            print('  → 系統設定 → 隱私權與安全性 → 螢幕錄製')
-            print('  → 勾選 Terminal（或 iTerm2）→ 重新啟動 Terminal 再執行')
-        return has_perm
     except Exception:
-        # CGPreflightScreenCaptureAccess 在 macOS 10.x 不存在，直接略過
-        return True
+        pass
+
+    # 二次驗證：用 CGWindowListCopyWindowInfo 數可見視窗
+    # 沒有錄製權限時只能看到自己的 1~2 個視窗
+    quartz_ok = True
+    try:
+        import Quartz
+        opts = (Quartz.kCGWindowListOptionOnScreenOnly |
+                Quartz.kCGWindowListExcludeDesktopElements)
+        wins = Quartz.CGWindowListCopyWindowInfo(opts, Quartz.kCGNullWindowID)
+        quartz_ok = bool(wins and len(wins) > 3)
+    except Exception:
+        pass  # pyobjc 未安裝，跳過
+
+    has_perm = cg_says_ok and quartz_ok
+
+    if not has_perm:
+        import subprocess
+        print('[Capture] ⚠️  macOS 螢幕錄製權限未開啟！')
+        print('  → 已開啟「系統設定 → 隱私權與安全性 → 螢幕錄製」')
+        print('  → 勾選 Terminal（或 Python）→ 完全重新啟動 Terminal')
+        try:
+            subprocess.Popen([
+                'open',
+                'x-apple.systempreferences:com.apple.preference.security'
+                '?Privacy_ScreenCapture'
+            ])
+        except Exception:
+            pass
+
+    return has_perm
 
 
 def _check_mac_screen_permission():
