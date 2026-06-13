@@ -175,20 +175,15 @@ class PokerOverlay:
         self._root.update_idletasks()
         self._root.lift()
         self._root.focus_force()
-        # macOS：Python 行程不是 active app，視窗會躲在 Terminal 後面
+        # macOS：Tk() 已建立自己的 TkApplication（NSApplication 子類別），
+        # 此時用 NSApp（全域指標）激活，不能用 sharedApplication()（會衝突造成 crash）
         import sys as _sys2
         if _sys2.platform == 'darwin':
             try:
                 import AppKit as _ak
-                _ak.NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+                _ak.NSApp.activateIgnoringOtherApps_(True)
             except Exception:
-                try:
-                    import subprocess as _sp, os as _os
-                    _sp.Popen(['osascript', '-e',
-                        f'tell application "System Events" to set frontmost of '
-                        f'first process whose unix id is {_os.getpid()} to true'])
-                except Exception:
-                    pass
+                pass
 
     # ═══════════════════════════════════════════════════════════════
     # 建立 UI

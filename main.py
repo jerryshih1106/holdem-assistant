@@ -24,28 +24,6 @@ if sys.platform == 'darwin':
     os.environ.setdefault('OMP_NUM_THREADS', '1')
     os.environ.setdefault('MKL_NUM_THREADS', '1')
 
-    # ── macOS GUI 可見性修正 ─────────────────────────────────────────────
-    # conda/brew/pyenv Python 被 macOS 當背景行程，tkinter 視窗不會顯示。
-    # 必須在 Tk() 建立之前把行程提升為 Regular (foreground) application。
-    try:
-        import AppKit as _ak
-        _nsapp = _ak.NSApplication.sharedApplication()
-        # NSApplicationActivationPolicyRegular = 0：讓視窗出現在桌面上
-        _nsapp.setActivationPolicy_(0)
-        _nsapp.activateIgnoringOtherApps_(True)
-    except Exception:
-        # PyObjC 不可用時改用 Carbon TransformProcessType
-        try:
-            import ctypes, ctypes.util
-            _carbon = ctypes.CDLL(ctypes.util.find_library('Carbon'))
-            # GetCurrentProcess → ProcessSerialNumber → TransformProcessType
-            class _PSN(ctypes.Structure):
-                _fields_ = [('lo', ctypes.c_ulong), ('hi', ctypes.c_ulong)]
-            _psn = _PSN(0, 0)
-            _carbon.GetCurrentProcess(ctypes.byref(_psn))
-            _carbon.TransformProcessType(ctypes.byref(_psn), 1)  # kToForeground
-        except Exception:
-            pass
 
 import threading
 import time
