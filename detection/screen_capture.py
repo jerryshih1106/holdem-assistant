@@ -1,12 +1,36 @@
-"""Screen capture — PrintWindow（視窗擷取）/ dxcam / mss 三種模式。"""
+"""Screen capture — PrintWindow（Windows）/ mss（跨平台）雙模式。
 
+macOS 修正：
+- mss.MSS() 物件改為 thread-local，避免跨執行緒 SIGBUS
+- win32gui / dxcam 全部用 platform guard 保護
+- 新增 macOS Screen Recording 權限提示
+"""
+
+import sys
+import threading
 import numpy as np
 import cv2
 from typing import Optional, Tuple
 
+_IS_WIN = sys.platform == 'win32'
+_IS_MAC = sys.platform == 'darwin'
+
+# Thread-local mss 實例：每個執行緒各自持有，避免 macOS Quartz SIGBUS
+_tls = threading.local()
+
+
+def _get_mss_sct():
+    """回傳目前執行緒的 mss.MSS() 實例（不存在就建立）。"""
+    if not hasattr(_tls, 'sct') or _tls.sct is None:
+        import mss as _mss
+        _tls.sct = _mss.mss()
+    return _tls.sct
+
 
 def list_windows() -> list:
-    """回傳所有可見視窗的 (hwnd, title) 清單。"""
+    """回傳所有可見視窗的 (hwnd, title) 清單（Windows only）。"""
+    if not _IS_WIN:
+        return []
     import win32gui
     result = []
     def _cb(hwnd, _):
@@ -19,8 +43,10 @@ def list_windows() -> list:
 
 
 def capture_window(hwnd: int, region: Optional[Tuple[int,int,int,int]] = None) -> Optional[np.ndarray]:
-    """用 PrintWindow 擷取指定視窗，回傳 BGR ndarray 或 None。"""
-    import win32gui, win32ui, win32con
+    """用 PrintWindow 擷取指定視窗（Windows only），回傳 BGR ndarray 或 None。"""
+    if not _IS_WIN:
+        return None
+    import win32gui, win32ui, win32con, ctypes
     try:
         left, top, right, bottom = win32gui.GetWindowRect(hwnd)
         w, h = right - left, bottom - top
@@ -34,8 +60,6 @@ def capture_window(hwnd: int, region: Optional[Tuple[int,int,int,int]] = None) -
         bmp.CreateCompatibleBitmap(mfc_dc, w, h)
         save_dc.SelectObject(bmp)
 
-        # PW_RENDERFULLCONTENT=2 可抓到硬體加速內容
-        import ctypes
         result = ctypes.windll.user32.PrintWindow(hwnd, save_dc.GetSafeHdc(), 2)
 
         bmp_info = bmp.GetInfo()
@@ -50,7 +74,7 @@ def capture_window(hwnd: int, region: Optional[Tuple[int,int,int,int]] = None) -
         win32gui.DeleteObject(bmp.GetHandle())
 
         if result == 0:
-            return None  # PrintWindow 失敗
+            return None
 
         if region:
             rx, ry, rw, rh = region
@@ -62,36 +86,60 @@ def capture_window(hwnd: int, region: Optional[Tuple[int,int,int,int]] = None) -
         return None
 
 
+def _check_mac_screen_permission():
+    """macOS：檢查 Screen Recording 權限，未授權給出提示。"""
+    if not _IS_MAC:
+        return
+    try:
+        import mss as _mss
+        with _mss.mss() as sct:
+            m = sct.monitors[1]
+            test = sct.grab({"left": 0, "top": 0, "width": 1, "height": 1})
+            arr = np.array(test)
+            if arr.shape[0] == 0:
+                raise RuntimeError("empty")
+    except Exception:
+        print("[Capture] macOS Screen Recording 權限未開啟！")
+        print("  → 系統設定 → 隱私權與安全性 → 螢幕錄製 → 開啟 Terminal（或 Python）")
+
+
 class ScreenCapture:
     def __init__(self, region: Optional[Tuple[int, int, int, int]] = None):
         self._region  = region
-        self._hwnd    = None   # 視窗擷取模式時設定
+        self._hwnd    = None
         self._dxcam   = None
-        self._sct     = None
-        self._monitor_mss = None
-        self._init_capture()
+        self._monitor_mss: Optional[dict] = None
+        self._lock = threading.Lock()  # dxcam 非 thread-safe
 
-    # ── 初始化 ────────────────────────────────────────────────
+        if _IS_MAC:
+            _check_mac_screen_permission()
+        self._init_capture()
 
     def _init_capture(self):
         if self._hwnd is not None:
-            return  # 視窗模式，不需要初始化螢幕擷取
-        try:
-            import dxcam
-            region = self._region
-            left, top, w, h = region if region else (0, 0, 0, 0)
-            rect = (left, top, left + w, top + h) if region else None
-            self._dxcam = dxcam.create(output_color="BGR", region=rect)
-            print(f'[Capture] dxcam 初始化（region={rect}）')
-        except Exception as e:
-            print(f'[Capture] dxcam 失敗 ({e})，改用 mss')
-            self._init_mss(self._region)
+            return
 
-    def _init_mss(self, region):
-        import mss as _mss
-        self._sct = _mss.MSS()
+        if _IS_WIN:
+            try:
+                import dxcam
+                region = self._region
+                left, top, w, h = region if region else (0, 0, 0, 0)
+                rect = (left, top, left + w, top + h) if region else None
+                self._dxcam = dxcam.create(output_color="BGR", region=rect)
+                print(f'[Capture] dxcam 初始化（region={rect}）')
+                return
+            except Exception as e:
+                print(f'[Capture] dxcam 失敗 ({e})，改用 mss')
+
+        # mss fallback（Windows + macOS 通用）
+        self._update_mss_monitor(self._region)
+        print(f'[Capture] mss 模式（region={self._region}）')
+
+    def _update_mss_monitor(self, region):
+        """更新 mss monitor dict（實際 sct 物件在 grab 時 thread-local 建立）。"""
         if region is None:
-            self._monitor_mss = self._sct.monitors[1]
+            # 全螢幕：defer to grab time（各 thread 拿各自的 monitors[1]）
+            self._monitor_mss = None
         else:
             left, top, w, h = region
             self._monitor_mss = {"left": left, "top": top, "width": w, "height": h}
@@ -99,50 +147,53 @@ class ScreenCapture:
     # ── 切換模式 ──────────────────────────────────────────────
 
     def set_window(self, hwnd: int):
-        """切換為視窗擷取模式（PrintWindow）。"""
+        if not _IS_WIN:
+            print('[Capture] set_window 只支援 Windows')
+            return
         self._hwnd = hwnd
         import win32gui
         title = win32gui.GetWindowText(hwnd)
         print(f'[Capture] 視窗模式：{title!r} (hwnd={hwnd})')
 
     def set_screen_mode(self):
-        """切換回螢幕擷取模式。"""
         self._hwnd = None
 
     def set_region(self, region: Optional[Tuple[int, int, int, int]]):
         self._region = region
         if self._hwnd is not None:
-            return  # 視窗模式下 region 是視窗內的裁切範圍，不需重初始化
+            return
         if self._dxcam is not None:
             try: del self._dxcam
             except Exception: pass
             self._dxcam = None
-        if self._sct is not None:
-            try: self._sct.close()
-            except Exception: pass
-            self._sct = None
+        # 讓各執行緒的 thread-local sct 在下次 grab 時重建
+        _tls.sct = None
         self._init_capture()
 
     # ── 擷取 ──────────────────────────────────────────────────
 
     def grab(self) -> np.ndarray:
-        if self._hwnd is not None:
+        if self._hwnd is not None and _IS_WIN:
             frame = capture_window(self._hwnd, self._region)
             if frame is not None:
                 return frame
             print('[Capture] PrintWindow 回傳空，fallback 到螢幕擷取')
 
         if self._dxcam is not None:
-            frame = self._dxcam.grab()
+            with self._lock:
+                frame = self._dxcam.grab()
             if frame is not None:
                 return frame
 
         return self._grab_mss()
 
     def _grab_mss(self) -> np.ndarray:
-        if self._sct is None:
-            self._init_mss(self._region)
-        raw = self._sct.grab(self._monitor_mss)
+        """使用 thread-local mss 實例截圖（macOS thread-safe）。"""
+        sct = _get_mss_sct()
+        monitor = self._monitor_mss
+        if monitor is None:
+            monitor = sct.monitors[1]  # 主螢幕
+        raw = sct.grab(monitor)
         frame = np.array(raw)
         return cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
 
@@ -156,13 +207,11 @@ class ScreenCapture:
     @staticmethod
     def list_monitors() -> list:
         import mss as _mss
-        with _mss.MSS() as sct:
+        with _mss.mss() as sct:
             return sct.monitors
 
     def close(self):
         if self._dxcam is not None:
             try: del self._dxcam
             except Exception: pass
-        if self._sct is not None:
-            try: self._sct.close()
-            except Exception: pass
+        # thread-local sct 由各執行緒自行 GC，不需要統一關閉
