@@ -23,19 +23,19 @@ from poker.decision import Decision, ACTION_COLOR
 from poker.equity import hand_category
 from ui.card_picker import CardPickerFrame, CardSlot, CardPickerPopup
 
-BG     = "#1A1A2E"
-BG2    = "#0D1117"
-BG3    = "#21262D"
-FG     = "#E0E0E0"
-DIM    = "#888888"
-ACCENT = "#4FC3F7"
+BG     = "#0E0E14"
+BG2    = "#0A0A10"
+BG3    = "#16161E"
+FG     = "#C9D1D9"
+DIM    = "#5A6470"
+ACCENT = "#2F81F7"
 
-SUIT_COLORS = {'h': '#FF6B6B', 'd': '#FF9F43', 's': '#8899BB', 'c': '#51CF66'}
+SUIT_COLORS = {'h': '#C85050', 'd': '#B87030', 's': '#4A6888', 'c': '#2E8A48'}
 SUIT_SYMS   = {'h': '♥', 'd': '♦', 's': '♠', 'c': '♣'}
 
 EV_KEY_ZH  = {"fold": "棄", "check": "過", "call": "跟", "raise": "加", "allin": "全下"}
-EV_COLORS  = {"fold": "#FF4444", "check": "#888888", "call": "#4FC3F7",
-              "raise": "#56D364", "allin": "#FFD700"}
+EV_COLORS  = {"fold": "#A03030", "check": "#5A6470", "call": "#2F81F7",
+              "raise": "#2E8A48", "allin": "#A07818"}
 POSITIONS  = ['UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB']
 
 TOOLTIPS = {
@@ -65,15 +65,11 @@ def _fmt_card(card: str) -> tuple:
 
 
 def _equity_color(eq: float) -> str:
-    if eq < 0.30:   return "#FF4444"
-    elif eq < 0.45:
-        g = int(100 + (eq - 0.30) / 0.15 * 100)
-        return f"#FF{g:02X}33"
-    elif eq < 0.55: return "#FFD700"
-    elif eq < 0.70:
-        r = int(200 * (1 - (eq - 0.55) / 0.15))
-        return f"#{r:02X}CC44"
-    else:           return "#00FF88"
+    if eq < 0.30:   return "#B03030"
+    elif eq < 0.45: return "#A06018"
+    elif eq < 0.55: return "#8A7010"
+    elif eq < 0.70: return "#2E7A38"
+    else:           return "#1E8A50"
 
 
 # ─── Tooltip ──────────────────────────────────────────────────────────────────
@@ -94,7 +90,7 @@ class _Tooltip:
         self._win.wm_overrideredirect(True)
         self._win.wm_attributes('-topmost', True)
         self._win.wm_geometry(f'+{x}+{y}')
-        tk.Label(self._win, text=text, bg='#FFFDE7', fg='#1A1A1A',
+        tk.Label(self._win, text=text, bg='#1A1A24', fg=FG,
                  font=('Consolas', 8), relief='solid', bd=1,
                  padx=8, pady=4, wraplength=300, justify='left').pack()
 
@@ -197,33 +193,33 @@ class PokerOverlay:
         self._build_status()
 
     def _sep(self):
-        tk.Frame(self._content_frame, bg="#333355", height=1).pack(fill="x")
+        tk.Frame(self._content_frame, bg="#1E1E28", height=1).pack(fill="x")
 
     _panel_callbacks: dict = {}
 
     # ── 標題列 + 模式切換（v4）────────────────────────────────────
 
     def _build_title(self):
-        bar = tk.Frame(self._root, bg="#0D1117", cursor="fleur")
+        bar = tk.Frame(self._root, bg=BG2, cursor="fleur")
         bar.pack(fill="x")
-        tk.Label(bar, text="♠ 德州撲克助手", bg="#0D1117",
+        tk.Label(bar, text="♠ 德州撲克助手", bg=BG2,
                  fg=ACCENT, font=("Consolas", 11, "bold")).pack(side="left", padx=6, pady=4)
 
         # 關閉
-        close_lbl = tk.Label(bar, text="✕", bg="#0D1117", fg="#FF4444",
+        close_lbl = tk.Label(bar, text="✕", bg=BG2, fg="#883030",
                              font=("Consolas", 11), cursor="hand2")
         close_lbl.pack(side="right", padx=6)
         close_lbl.bind("<Button-1>", lambda _: self._root.destroy())
 
         # 最小化
-        self._min_btn = tk.Label(bar, text="▂", bg="#0D1117", fg="#AAAAAA",
+        self._min_btn = tk.Label(bar, text="▂", bg=BG2, fg=DIM,
                                   font=("Consolas", 11), cursor="hand2")
         self._min_btn.pack(side="right", padx=2)
         self._min_btn.bind("<Button-1>", lambda _: self._toggle_minimize())
 
         # 手動/自動偵測模式切換（v4 新增）
         self._mode_btn = tk.Label(
-            bar, text=" 手動 ", bg="#1A2A3A", fg="#4FC3F7",
+            bar, text=" 手動 ", bg="#122030", fg="#3A7A9A",
             font=("Consolas", 8, "bold"), cursor="hand2",
             relief="solid", bd=1)
         self._mode_btn.pack(side="right", padx=4)
@@ -234,16 +230,20 @@ class PokerOverlay:
         bar.bind("<ButtonPress-1>",   self._drag_start)
         bar.bind("<B1-Motion>",       self._drag_motion)
         bar.bind("<Double-Button-1>", lambda _: self._toggle_minimize())
+        # 只對純標籤（無點擊行為）加拖曳，排除互動按鈕避免覆蓋其 click binding
+        _interactive = {close_lbl, self._min_btn, self._mode_btn}
         for w in bar.winfo_children():
+            if w in _interactive:
+                continue
             w.bind("<ButtonPress-1>", self._drag_start)
             w.bind("<B1-Motion>",     self._drag_motion)
 
     def _toggle_detect_mode(self):
         self._detect_mode = not self._detect_mode
         if self._detect_mode:
-            self._mode_btn.config(text=" 偵測 ", bg="#1A3A1A", fg="#56D364")
+            self._mode_btn.config(text=" 偵測 ", bg="#122216", fg="#2E7A48")
         else:
-            self._mode_btn.config(text=" 手動 ", bg="#1A2A3A", fg="#4FC3F7")
+            self._mode_btn.config(text=" 手動 ", bg="#122030", fg="#3A7A9A")
         cb = self._panel_callbacks.get('MODE_TOGGLE')
         if cb:
             cb(self._detect_mode)
@@ -266,70 +266,75 @@ class PokerOverlay:
     # ── 透明度滑桿 ──────────────────────────────────────────────────
 
     def _build_opacity_row(self):
-        self._opacity_row = tk.Frame(self._root, bg="#080C12")
+        self._opacity_row = tk.Frame(self._root, bg=BG2)
         self._opacity_row.pack(fill='x')
-        tk.Label(self._opacity_row, text="透明", bg="#080C12", fg="#444444",
+        tk.Label(self._opacity_row, text="透明", bg=BG2, fg=DIM,
                  font=("Consolas", 7)).pack(side='left', padx=(6, 2))
         self._opacity_var = tk.DoubleVar(value=self._cfg.ui.overlay_opacity)
         tk.Scale(
             self._opacity_row, from_=0.2, to=1.0, resolution=0.05,
             orient='horizontal', variable=self._opacity_var,
-            bg="#080C12", fg="#444444", troughcolor="#1A1A2E",
+            bg=BG2, fg=DIM, troughcolor="#14142A",
             highlightthickness=0, showvalue=False, length=180,
             command=lambda v: self._root.attributes("-alpha", float(v)),
         ).pack(side='left', fill='x', expand=True)
-        tk.Label(self._opacity_row, text="不透明", bg="#080C12", fg="#444444",
+        tk.Label(self._opacity_row, text="不透明", bg=BG2, fg=DIM,
                  font=("Consolas", 7)).pack(side='left', padx=(2, 6))
 
     # ── 面板按鈕列 ────────────────────────────────────────────────────
 
     def _build_panel_buttons(self):
-        bar = tk.Frame(self._root, bg="#0A0F1A")
-        bar.pack(fill="x")
+        # 第一列：分析面板（6 個）
+        bar1 = tk.Frame(self._root, bg=BG2)
+        bar1.pack(fill="x")
         panels = [
-            ('翻前範圍', 'F1', '#1A3A5C'), ('對手統計', 'F2', '#1A3A2A'),
-            ('翻後分析', 'F3', '#3A2A1A'), ('推/棄',   'F4', '#3A1A1A'),
-            ('局史',    'F5', '#2A1A3A'), ('ICM',     'F6', '#1A2A3A'),
+            ('翻前範圍', 'F1', '#0E1E2E'), ('對手統計', 'F2', '#0E1E16'),
+            ('翻後分析', 'F3', '#1E160E'), ('推/棄',   'F4', '#1E100E'),
+            ('局史',    'F5', '#160E1E'), ('ICM',     'F6', '#0E161E'),
         ]
         for label, key, bg in panels:
-            btn = tk.Button(bar, text=f'{label}\n[{key}]', bg=bg, fg='#AAAAAA',
+            btn = tk.Button(bar1, text=f'{label}', bg=bg, fg=DIM,
                             font=('Consolas', 7), relief='flat', cursor='hand2',
                             padx=3, pady=2,
                             command=lambda k=key: self._panel_btn_click(k))
             btn.pack(side='left', padx=1, pady=1, fill='x', expand=True)
-            btn.bind('<Enter>', lambda e, b=btn: b.config(fg='#FFFFFF'))
-            btn.bind('<Leave>', lambda e, b=btn: b.config(fg='#AAAAAA'))
+            btn.bind('<Enter>', lambda e, b=btn: b.config(fg=FG))
+            btn.bind('<Leave>', lambda e, b=btn: b.config(fg=DIM))
 
-        self._detect_btn = tk.Button(bar, text='偵測\n[F7]', bg='#1A3A1A', fg='#AAAAAA',
-                                      font=('Consolas', 7), relief='flat', cursor='hand2',
-                                      padx=3, pady=2,
+        # 第二列：偵測工具 + 賽制切換（Mac 也看得到）
+        bar2 = tk.Frame(self._root, bg=BG2)
+        bar2.pack(fill="x")
+
+        self._detect_btn = tk.Button(bar2, text='⚡ 偵測一次', bg='#122216', fg='#2E7A48',
+                                      font=('Consolas', 7, 'bold'), relief='flat', cursor='hand2',
+                                      padx=6, pady=2,
                                       command=lambda: self._panel_btn_click('F7'))
-        self._detect_btn.pack(side='left', padx=1, pady=1, fill='x', expand=True)
-        self._detect_btn.bind('<Enter>', lambda e: self._detect_btn.config(fg='#00FF88'))
-        self._detect_btn.bind('<Leave>', lambda e: self._detect_btn.config(fg='#AAAAAA'))
+        self._detect_btn.pack(side='left', padx=2, pady=1)
+        self._detect_btn.bind('<Enter>', lambda e: self._detect_btn.config(bg='#1A3A28'))
+        self._detect_btn.bind('<Leave>', lambda e: self._detect_btn.config(bg='#122216'))
 
-        self._screen_btn = tk.Button(bar, text='螢幕\n[⚙]', bg='#2A2A1A', fg='#AAAAAA',
+        self._screen_btn = tk.Button(bar2, text='⚙ 截圖範圍', bg='#201C10', fg='#908030',
                                       font=('Consolas', 7), relief='flat', cursor='hand2',
-                                      padx=3, pady=2,
+                                      padx=6, pady=2,
                                       command=lambda: self._panel_btn_click('SCREEN'))
-        self._screen_btn.pack(side='left', padx=1, pady=1, fill='x', expand=True)
-        self._screen_btn.bind('<Enter>', lambda e: self._screen_btn.config(fg='#FFD700'))
-        self._screen_btn.bind('<Leave>', lambda e: self._screen_btn.config(fg='#AAAAAA'))
+        self._screen_btn.pack(side='left', padx=2, pady=1)
+        self._screen_btn.bind('<Enter>', lambda e: self._screen_btn.config(bg='#302818'))
+        self._screen_btn.bind('<Leave>', lambda e: self._screen_btn.config(bg='#201C10'))
 
-        self._preview_btn = tk.Button(bar, text='預覽\n[👁]', bg='#1A2A3A', fg='#AAAAAA',
+        self._preview_btn = tk.Button(bar2, text='👁 預覽', bg='#101A22', fg='#2A6A8A',
                                        font=('Consolas', 7), relief='flat', cursor='hand2',
-                                       padx=3, pady=2,
+                                       padx=6, pady=2,
                                        command=lambda: self._panel_btn_click('PREVIEW'))
-        self._preview_btn.pack(side='left', padx=1, pady=1, fill='x', expand=True)
-        self._preview_btn.bind('<Enter>', lambda e: self._preview_btn.config(fg='#4FC3F7'))
-        self._preview_btn.bind('<Leave>', lambda e: self._preview_btn.config(fg='#AAAAAA'))
+        self._preview_btn.pack(side='left', padx=2, pady=1)
+        self._preview_btn.bind('<Enter>', lambda e: self._preview_btn.config(bg='#183040'))
+        self._preview_btn.bind('<Leave>', lambda e: self._preview_btn.config(bg='#101A22'))
 
         # 錦標賽模式切換（P1 新增）
-        self._tourn_btn = tk.Button(bar, text='  現金局  ', bg='#1A2A3A', fg='#4FC3F7',
+        self._tourn_btn = tk.Button(bar2, text='現金局', bg='#101A22', fg='#2A6A8A',
                                      font=('Consolas', 7), relief='flat', cursor='hand2',
-                                     padx=3, pady=2,
+                                     padx=6, pady=2,
                                      command=lambda: self._toggle_tournament_mode())
-        self._tourn_btn.pack(side='left', padx=1, pady=1, fill='x', expand=True)
+        self._tourn_btn.pack(side='right', padx=2, pady=1)
         _tip(self._tourn_btn, self._tooltip,
              "點擊切換賽制：\n現金局（藍）= 標準 EV 最大化\n錦標賽（金）= 啟用 ICM 壓力調整")
 
@@ -346,12 +351,12 @@ class PokerOverlay:
 
     def _build_context_label(self):
         self._ctx_lbl = tk.Label(
-            self._content_frame, text="", bg="#0A0F1A", fg="#6A8FAF",
+            self._content_frame, text="", bg=BG2, fg="#486480",
             font=("Consolas", 8), anchor='center')
         self._ctx_lbl.pack(fill='x', pady=(2, 0))
 
     def update_context(self, text: str):
-        self._ctx_lbl.config(text=text, fg="#6A9FBF" if text else "#0A0F1A")
+        self._ctx_lbl.config(text=text, fg="#486480" if text else BG2)
 
     # ── 牌槽區 + 紋理徽章（v4）────────────────────────────────────
 
@@ -381,10 +386,10 @@ class PokerOverlay:
 
         btn_row = tk.Frame(outer, bg=BG)
         btn_row.pack(fill='x', pady=(3, 0))
-        tk.Button(btn_row, text="↩ 上一張", bg="#2A2A1A", fg="#BBAA44",
+        tk.Button(btn_row, text="↩ 上一張", bg="#1A1A10", fg="#6A5A18",
                   font=("Consolas", 8), relief="flat", padx=6, cursor="hand2",
                   command=self._undo_last_card).pack(side="left", padx=(0, 4))
-        tk.Button(btn_row, text="清除全部", bg="#442222", fg="#FF8888",
+        tk.Button(btn_row, text="清除全部", bg="#200E0E", fg="#883030",
                   font=("Consolas", 8), relief="flat", padx=6, cursor="hand2",
                   command=self._clear_all).pack(side="left")
 
@@ -502,7 +507,7 @@ class PokerOverlay:
         tk.Label(frame, text='位置', bg=BG2, fg=DIM, font=('Consolas', 8)).pack(side='left', padx=(4, 6))
         self._pos_buttons = {}
         for pos in POSITIONS:
-            btn = tk.Button(frame, text=pos, width=4, bg='#1C2128', fg='#8B949E',
+            btn = tk.Button(frame, text=pos, width=4, bg=BG3, fg=DIM,
                             font=('Consolas', 8), relief='flat', cursor='hand2',
                             command=lambda p=pos: self._select_position(p))
             btn.pack(side='left', padx=1)
@@ -528,10 +533,10 @@ class PokerOverlay:
         cur = street_map.get(self._current_street, 0)
         for i in range(n - 1):
             c.create_line(xs[i], 11, xs[i+1], 11,
-                          fill="#4FC3F7" if i < cur else "#2A2A4A", width=2)
+                          fill=ACCENT if i < cur else "#1A1A28", width=2)
         for i, (x, label) in enumerate(zip(xs, stages)):
-            dot_col = "#4FC3F7" if i < cur else ("#FFFFFF" if i == cur else "#2A2A4A")
-            txt_col = "#FFFFFF" if i == cur else ("#4FC3F7" if i < cur else "#444444")
+            dot_col = ACCENT if i < cur else (FG if i == cur else "#1A1A28")
+            txt_col = FG if i == cur else (ACCENT if i < cur else DIM)
             r = 6 if i == cur else 4
             c.create_oval(x-r, 11-r, x+r, 11+r, fill=dot_col if i <= cur else BG2,
                           outline=dot_col, width=2)
@@ -550,8 +555,8 @@ class PokerOverlay:
     def _select_position(self, pos: str):
         self._current_position = pos
         for p, btn in self._pos_buttons.items():
-            btn.config(bg='#1F6FEB' if p == pos else '#1C2128',
-                       fg='#FFFFFF'  if p == pos else '#8B949E')
+            btn.config(bg='#1A4090' if p == pos else BG3,
+                       fg=FG         if p == pos else DIM)
         if self._on_position_changed:
             self._on_position_changed(pos)
 
@@ -594,7 +599,7 @@ class PokerOverlay:
         tk.Spinbox(frame, from_=1, to=8, textvariable=self._opp_var,
                    bg=BG3, fg=FG, buttonbackground=BG3, font=("Consolas", 9),
                    width=2, relief="flat").grid(row=1, column=1, padx=2, pady=(2,0))
-        tk.Button(frame, text="套用", bg="#1A5C1A", fg="#88FF88",
+        tk.Button(frame, text="套用", bg="#122214", fg="#2A6E2A",
                   font=("Consolas", 8), relief="flat", padx=6, cursor="hand2",
                   command=self._apply_inputs).grid(row=1, column=2, columnspan=4,
                                                    padx=(4,0), pady=(2,0), sticky="w")
@@ -610,12 +615,12 @@ class PokerOverlay:
         qrow.pack(fill='x', padx=6, pady=(1, 3))
         tk.Label(qrow, text="快速注碼:", bg=BG2, fg=DIM, font=("Consolas", 7)).pack(side='left', padx=(2, 4))
         for label, frac in [("1/3", 1/3), ("1/2", 0.5), ("2/3", 2/3), ("PSB", 1.0), ("1.5x", 1.5)]:
-            b = tk.Button(qrow, text=label, bg="#1C2840", fg="#7AAAF0",
+            b = tk.Button(qrow, text=label, bg=BG3, fg="#3A5A8A",
                           font=("Consolas", 7), relief="flat", padx=5, cursor="hand2",
                           command=lambda f=frac: self._quick_bet(f))
             b.pack(side='left', padx=1)
-            b.bind('<Enter>', lambda e, btn=b: btn.config(bg='#2A3A5A'))
-            b.bind('<Leave>', lambda e, btn=b: btn.config(bg='#1C2840'))
+            b.bind('<Enter>', lambda e, btn=b: btn.config(bg='#1E2A3A'))
+            b.bind('<Leave>', lambda e, btn=b: btn.config(bg=BG3))
 
     def _quick_bet(self, fraction: float):
         try:
@@ -630,8 +635,8 @@ class PokerOverlay:
         val = var.get()
         ok = val == '' or val.lstrip('-').isdigit()
         entry.config(highlightthickness=1 if ok else 2,
-                     highlightbackground="#444444" if ok else "#FF4444",
-                     highlightcolor=ACCENT if ok else "#FF4444")
+                     highlightbackground=BORDER if ok else "#8A2020",
+                     highlightcolor=ACCENT if ok else "#8A2020")
 
     def _apply_inputs(self):
         if hasattr(self, '_on_inputs_changed') and self._on_inputs_changed:
@@ -649,7 +654,7 @@ class PokerOverlay:
     def _build_hand_type(self):
         row = tk.Frame(self._content_frame, bg=BG2, pady=2)
         row.pack(fill="x", padx=6)
-        self._hand_type_lbl = tk.Label(row, text="", bg=BG2, fg="#AADDAA",
+        self._hand_type_lbl = tk.Label(row, text="", bg=BG2, fg="#4A7A4A",
                                         font=("Consolas", 9, "bold"))
         self._hand_type_lbl.pack(side="left", padx=6)
         self._hand_pct_lbl = tk.Label(row, text="", bg=BG2, fg=DIM, font=("Consolas", 8))
@@ -679,7 +684,7 @@ class PokerOverlay:
         self._category_label.pack(anchor='w')
 
         # 5 色進度條
-        self._bar_canvas = tk.Canvas(self._content_frame, bg="#0D1117", height=self._px(8),
+        self._bar_canvas = tk.Canvas(self._content_frame, bg=BG2, height=self._px(8),
                                       highlightthickness=0)
         self._bar_canvas.pack(fill="x", padx=12, pady=(3, 1))
 
@@ -713,7 +718,7 @@ class PokerOverlay:
         if self._gauge_mode:
             c.create_arc(cx-r, cy-r, cx+r, cy+r,
                          start=180, extent=180,
-                         style='arc', outline='#2A2A4A', width=lw)
+                         style='arc', outline='#1A1A28', width=lw)
             if equity > 0:
                 extent = min(equity * 180, 179.9)
                 c.create_arc(cx-r, cy-r, cx+r, cy+r,
@@ -722,8 +727,8 @@ class PokerOverlay:
             c.create_text(cx, cy - max(2, ch // 18),
                           text=f"{int(equity*100)}%",
                           fill=color, font=('Consolas', 11, 'bold'))
-            c.create_text(cx - r - 2, cy + 2, text='0',   fill='#444444', font=('Consolas', 6))
-            c.create_text(cx + r + 2, cy + 2, text='100', fill='#444444', font=('Consolas', 6))
+            c.create_text(cx - r - 2, cy + 2, text='0',   fill=DIM, font=('Consolas', 6))
+            c.create_text(cx + r + 2, cy + 2, text='100', fill=DIM, font=('Consolas', 6))
         else:
             c.create_text(cx, cy, text=f"{int(equity*100)}%",
                           fill=color, font=('Consolas', 14, 'bold'))
@@ -740,7 +745,7 @@ class PokerOverlay:
                 c.create_text(w//2, 12, text=f"●  {int(hist[0]*100)}%",
                               fill=_equity_color(hist[0]), font=('Consolas', 7))
             else:
-                c.create_text(w//2, 12, text="無歷史資料", fill='#2A2A4A', font=('Consolas', 7))
+                c.create_text(w//2, 12, text="無歷史資料", fill='#1A1A28', font=('Consolas', 7))
             return
 
         labels = ['翻前', '翻牌', '轉牌', '河牌']
@@ -765,9 +770,9 @@ class PokerOverlay:
     def _draw_equity_bar(self, equity: float):
         w = self._bar_canvas.winfo_width() or 290
         self._bar_canvas.delete("all")
-        self._bar_canvas.create_rectangle(0, 0, w, 8, fill="#1A1A1A", outline="")
-        segments = [(0.30, "#FF4444"), (0.45, "#FF8C00"),
-                    (0.55, "#FFD700"), (0.70, "#66CC44"), (1.00, "#00FF88")]
+        self._bar_canvas.create_rectangle(0, 0, w, 8, fill=BG3, outline="")
+        segments = [(0.30, "#8A2020"), (0.45, "#7A4010"),
+                    (0.55, "#6A5010"), (0.70, "#286030"), (1.00, "#1A6840")]
         prev_x = 0
         for threshold, seg_color in segments:
             x = int(w * min(equity, threshold))
@@ -792,11 +797,11 @@ class PokerOverlay:
         # 信賴區間標注
         if exact:
             ci_text = "精確枚舉"
-            ci_color = "#56D364"
+            ci_color = "#2E7A48"
         elif ci_half > 0:
             ci_pct = math.ceil(ci_half * 100)
             ci_text = f"±{ci_pct}%  n={n_samples:,}"
-            ci_color = "#56D364" if ci_pct <= 1 else ("#E3B341" if ci_pct <= 2 else "#FF7B54")
+            ci_color = "#2E7A48" if ci_pct <= 1 else ("#8A7020" if ci_pct <= 2 else "#8A4020")
         else:
             ci_text = ""
             ci_color = DIM
@@ -833,43 +838,43 @@ class PokerOverlay:
         diff = abs(int(eq*100) - int(po*100))
         if eq > po:
             self._ev_compare_lbl.config(
-                text=f"勝率{int(eq*100)}% > 底池賠率{int(po*100)}% → +EV (+{diff}%)", fg="#44FF88")
+                text=f"勝率{int(eq*100)}% > 底池賠率{int(po*100)}% → +EV (+{diff}%)", fg="#2ABB60")
         else:
             self._ev_compare_lbl.config(
-                text=f"勝率{int(eq*100)}% < 底池賠率{int(po*100)}% → -EV (-{diff}%)", fg="#FF6666")
+                text=f"勝率{int(eq*100)}% < 底池賠率{int(po*100)}% → -EV (-{diff}%)", fg="#BB3030")
 
     # ── P1：範圍優勢 + 堅果優勢面板 ─────────────────────────────────
 
     def _build_range_advantage(self):
-        frame = tk.Frame(self._content_frame, bg='#080C12', pady=2)
+        frame = tk.Frame(self._content_frame, bg=BG2, pady=2)
         frame.pack(fill='x', padx=6)
 
         # 範圍優勢列
-        ra_row = tk.Frame(frame, bg='#080C12')
+        ra_row = tk.Frame(frame, bg=BG2)
         ra_row.pack(fill='x')
-        tk.Label(ra_row, text="範圍", bg='#080C12', fg='#3A4A5A',
+        tk.Label(ra_row, text="範圍", bg=BG2, fg=DIM,
                  font=('Consolas', 7), width=4).pack(side='left')
-        self._range_adv_bar  = tk.Canvas(ra_row, bg='#0A0F1A', height=self._px(8),
+        self._range_adv_bar  = tk.Canvas(ra_row, bg=BG3, height=self._px(8),
                                           highlightthickness=0)
         self._range_adv_bar.pack(side='left', fill='x', expand=True, padx=2)
-        self._range_adv_lbl  = tk.Label(ra_row, text="—", bg='#080C12', fg='#3A5A7A',
+        self._range_adv_lbl  = tk.Label(ra_row, text="—", bg=BG2, fg='#3A5A7A',
                                          font=('Consolas', 7), width=14, anchor='e')
         self._range_adv_lbl.pack(side='right', padx=2)
         self._range_adv_bar.bind('<Configure>', lambda e: self._draw_range_bar())
 
         # 堅果優勢列
-        na_row = tk.Frame(frame, bg='#080C12')
+        na_row = tk.Frame(frame, bg=BG2)
         na_row.pack(fill='x', pady=(1, 0))
-        tk.Label(na_row, text="堅果", bg='#080C12', fg='#3A4A5A',
+        tk.Label(na_row, text="堅果", bg=BG2, fg=DIM,
                  font=('Consolas', 7), width=4).pack(side='left')
-        self._nut_adv_lbl = tk.Label(na_row, text="—", bg='#080C12', fg='#3A5A7A',
+        self._nut_adv_lbl = tk.Label(na_row, text="—", bg=BG2, fg='#3A5A7A',
                                       font=('Consolas', 7), anchor='w')
         self._nut_adv_lbl.pack(side='left', padx=4, fill='x', expand=True)
 
         # ICM 壓力列（P1 新增）
-        icm_row = tk.Frame(frame, bg='#080C12')
+        icm_row = tk.Frame(frame, bg=BG2)
         icm_row.pack(fill='x', pady=(1, 0))
-        self._icm_note_lbl = tk.Label(icm_row, text="", bg='#080C12', fg='#CC8800',
+        self._icm_note_lbl = tk.Label(icm_row, text="", bg=BG2, fg='#8A6010',
                                        font=('Consolas', 7), anchor='w',
                                        wraplength=280, justify='left')
         self._icm_note_lbl.pack(side='left', padx=4, fill='x', expand=True)
@@ -878,18 +883,18 @@ class PokerOverlay:
         self._tournament_mode = False
         self._tournament_spots  = tk.StringVar(value='3')
         self._tournament_avg_bb = tk.StringVar(value='50')
-        self._tournament_row = tk.Frame(frame, bg='#080C12')
+        self._tournament_row = tk.Frame(frame, bg=BG2)
         # 錦標賽輸入列（隱藏，由 toggle 顯示）
-        tk.Label(self._tournament_row, text="距錢", bg='#080C12', fg='#887700',
+        tk.Label(self._tournament_row, text="距錢", bg=BG2, fg='#6A5010',
                  font=('Consolas', 7)).pack(side='left', padx=(4, 1))
         tk.Entry(self._tournament_row, textvariable=self._tournament_spots,
-                 bg='#1A1A00', fg='#FFD700', font=('Consolas', 7), width=3,
-                 relief='flat', insertbackground='#FFD700').pack(side='left', padx=1)
-        tk.Label(self._tournament_row, text="名 均BB", bg='#080C12', fg='#887700',
+                 bg='#141400', fg='#907820', font=('Consolas', 7), width=3,
+                 relief='flat', insertbackground='#907820').pack(side='left', padx=1)
+        tk.Label(self._tournament_row, text="名 均BB", bg=BG2, fg='#6A5010',
                  font=('Consolas', 7)).pack(side='left', padx=(3, 1))
         tk.Entry(self._tournament_row, textvariable=self._tournament_avg_bb,
-                 bg='#1A1A00', fg='#FFD700', font=('Consolas', 7), width=4,
-                 relief='flat', insertbackground='#FFD700').pack(side='left', padx=1)
+                 bg='#141400', fg='#907820', font=('Consolas', 7), width=4,
+                 relief='flat', insertbackground='#907820').pack(side='left', padx=1)
 
         self._range_adv_score = 5  # 1-10
 
@@ -900,31 +905,31 @@ class PokerOverlay:
         w = c.winfo_width() or 150
         score = getattr(self, '_range_adv_score', 5)
         # 背景
-        c.create_rectangle(0, 0, w, 8, fill='#1A1A2A', outline='')
+        c.create_rectangle(0, 0, w, 8, fill=BG3, outline='')
         # 中線
         mid = w // 2
-        c.create_line(mid, 0, mid, 8, fill='#2A2A3A', width=1)
+        c.create_line(mid, 0, mid, 8, fill='#22222E', width=1)
         # 填色
         frac = (score - 1) / 9.0   # 0.0~1.0, 0.5=中立
         x = int(frac * w)
         if score > 5:
-            col = '#56D364' if score >= 8 else '#4FC3F7'
+            col = '#2E7A48' if score >= 8 else '#1A5A8A'
             c.create_rectangle(mid, 1, x, 7, fill=col, outline='')
         elif score < 5:
-            col = '#FF4444' if score <= 3 else '#FF9F43'
+            col = '#8A2020' if score <= 3 else '#8A4010'
             c.create_rectangle(x, 1, mid, 7, fill=col, outline='')
 
     def update_range_advantage(self, score: int, label: str, nut_label: str):
         """更新範圍/堅果優勢顯示。score 1-10（5=均衡）。"""
         self._range_adv_score = score
         self._draw_range_bar()
-        color = '#56D364' if score >= 7 else ('#FF4444' if score <= 3 else '#4FC3F7')
+        color = '#2E7A48' if score >= 7 else ('#8A2020' if score <= 3 else '#2A6A8A')
         self._range_adv_lbl.config(text=label, fg=color if label and label != '—' else '#3A5A7A')
         # 堅果優勢顏色
         if '我方' in nut_label:
-            nc = '#56D364'
+            nc = '#2E7A48'
         elif '對方' in nut_label:
-            nc = '#FF9F43'
+            nc = '#8A4010'
         else:
             nc = '#3A5A7A'
         self._nut_adv_lbl.config(text=nut_label or '—', fg=nc)
@@ -933,17 +938,17 @@ class PokerOverlay:
         """更新 ICM 壓力提示行。"""
         self._icm_note_lbl.config(text=note)
         if note:
-            self._icm_note_lbl.config(fg='#FFAA00')
+            self._icm_note_lbl.config(fg='#8A6010')
         else:
             self._icm_note_lbl.config(text='')
 
     def _toggle_tournament_mode(self):
         self._tournament_mode = not self._tournament_mode
         if self._tournament_mode:
-            self._tourn_btn.config(text="🏆 錦標賽", bg='#2A1A00', fg='#FFD700')
+            self._tourn_btn.config(text="🏆 錦標賽", bg='#1C1000', fg='#907820')
             self._tournament_row.pack(fill='x', pady=(2, 0))
         else:
-            self._tourn_btn.config(text="  現金局  ", bg='#1A2A3A', fg='#4FC3F7')
+            self._tourn_btn.config(text="  現金局  ", bg='#101A22', fg='#2A6A8A')
             self._tournament_row.pack_forget()
             self._icm_note_lbl.config(text='')
 
@@ -976,7 +981,7 @@ class PokerOverlay:
         self._ev_label.pack(side="right")
         _tip(self._ev_label, self._tooltip, TOOLTIPS['ev'])
 
-        self._mdf_lbl = tk.Label(self._content_frame, text="", bg=BG, fg="#FF9F43",
+        self._mdf_lbl = tk.Label(self._content_frame, text="", bg=BG, fg="#8A5010",
                                   font=("Consolas", 8), wraplength=300, justify="center")
         self._mdf_lbl.pack(padx=8, pady=(0, 2))
         _tip(self._mdf_lbl, self._tooltip, TOOLTIPS['mdf'])
@@ -989,7 +994,7 @@ class PokerOverlay:
         action_row.pack(fill='x', pady=(6, 2))
 
         self._action_label = tk.Label(action_row, text="等待輸入", bg=BG,
-                                       fg="#666666", font=("Consolas", 22, "bold"))
+                                       fg=DIM, font=("Consolas", 22, "bold"))
         self._action_label.pack(side='left', padx=(10, 4))
 
         # 複製建議按鈕（v4 新增）
@@ -1005,12 +1010,12 @@ class PokerOverlay:
         self._reason_label.pack(padx=8)
 
         # P1: GTO 混合策略頻率提示
-        self._gto_mix_lbl = tk.Label(self._content_frame, text="", bg='#080C1A', fg='#5588CC',
+        self._gto_mix_lbl = tk.Label(self._content_frame, text="", bg=BG2, fg='#3A5A8A',
                                       font=("Consolas", 8), wraplength=300, justify="center")
         self._gto_mix_lbl.pack(padx=8, pady=(1, 0))
 
         # P1: 精確注碼提示
-        self._precise_size_lbl = tk.Label(self._content_frame, text="", bg='#080C1A', fg='#7799EE',
+        self._precise_size_lbl = tk.Label(self._content_frame, text="", bg=BG2, fg='#4A6A9A',
                                            font=("Consolas", 8), wraplength=300, justify="center")
         self._precise_size_lbl.pack(padx=8, pady=(0, 2))
 
@@ -1023,44 +1028,44 @@ class PokerOverlay:
         self._ev_bar_canvas.bind('<Configure>', lambda e: self._redraw_ev_bars())
         self._ev_breakdown_data: Dict[str, float] = {}
 
-        self._outs_label = tk.Label(self._content_frame, text="", bg=BG, fg="#7799AA",
+        self._outs_label = tk.Label(self._content_frame, text="", bg=BG, fg="#4A6070",
                                      font=("Consolas", 8), wraplength=300, justify="center")
         self._outs_label.pack(padx=8)
 
-        self._exploit_label = tk.Label(self._content_frame, text="", bg="#0D1A0D", fg="#44BB44",
+        self._exploit_label = tk.Label(self._content_frame, text="", bg="#0A140A", fg="#2E7A40",
                                         font=("Consolas", 8), wraplength=300, justify="center")
         self._exploit_label.pack(padx=8, pady=(0, 2))
 
-        self._squeeze_label = tk.Label(self._content_frame, text="", bg="#1A1000", fg="#FFCC44",
+        self._squeeze_label = tk.Label(self._content_frame, text="", bg="#140E00", fg="#8A7010",
                                         font=("Consolas", 8), wraplength=300, justify="center")
         self._squeeze_label.pack(padx=8, pady=(0, 2))
 
-        self._sizing_label = tk.Label(self._content_frame, text="", bg="#0D0D1A", fg="#8899FF",
+        self._sizing_label = tk.Label(self._content_frame, text="", bg="#0A0A14", fg="#4A5888",
                                        font=("Consolas", 8), wraplength=300, justify="center")
         self._sizing_label.pack(padx=8, pady=(0, 1))
         _tip(self._sizing_label, self._tooltip, TOOLTIPS['spr'])
 
         # 注碼比例迷你條（v4 新增）— 視覺化下注佔底池%
-        self._bet_bar_canvas = tk.Canvas(self._content_frame, bg="#06060E", height=self._px(6),
+        self._bet_bar_canvas = tk.Canvas(self._content_frame, bg=BG2, height=self._px(6),
                                           highlightthickness=0)
         self._bet_bar_canvas.pack(fill='x', padx=16, pady=(0, 2))
         self._bet_bar_canvas.bind('<Configure>', lambda e: self._redraw_bet_bar())
         self._bet_bar_pct: float = 0.0
 
-        self._barrel_label = tk.Label(self._content_frame, text="", bg="#0A1A0A", fg="#66DD66",
+        self._barrel_label = tk.Label(self._content_frame, text="", bg="#0A140A", fg="#2E7A40",
                                        font=("Consolas", 8), wraplength=300, justify="center")
         self._barrel_label.pack(padx=8, pady=(0, 2))
 
-        self._polar_label = tk.Label(self._content_frame, text="", bg="#1A0A1A", fg="#CC88FF",
+        self._polar_label = tk.Label(self._content_frame, text="", bg="#140A14", fg="#5A3A6A",
                                       font=("Consolas", 8), wraplength=300, justify="center")
         self._polar_label.pack(padx=8, pady=(0, 2))
 
-        self._spr_label = tk.Label(self._content_frame, text="", bg="#0D1117", fg="#F0A050",
+        self._spr_label = tk.Label(self._content_frame, text="", bg=BG2, fg="#7A5020",
                                     font=("Consolas", 8), wraplength=300, justify="center")
         self._spr_label.pack(padx=8, pady=(0, 2))
         _tip(self._spr_label, self._tooltip, TOOLTIPS['spr'])
 
-        self._percentile_label = tk.Label(self._content_frame, text="", bg="#0D1117", fg="#56D364",
+        self._percentile_label = tk.Label(self._content_frame, text="", bg=BG2, fg="#2E7A48",
                                            font=("Consolas", 8), wraplength=300, justify="center")
         self._percentile_label.pack(padx=8, pady=(0, 3))
 
@@ -1074,8 +1079,8 @@ class PokerOverlay:
             self._root.clipboard_clear()
             self._root.clipboard_append(text)
             # 短暫閃爍確認
-            self._copy_btn.config(fg="#56D364")
-            self._root.after(600, lambda: self._copy_btn.config(fg="#555555"))
+            self._copy_btn.config(fg="#2E7A48")
+            self._root.after(600, lambda: self._copy_btn.config(fg=DIM))
         except Exception:
             pass
 
@@ -1094,7 +1099,7 @@ class PokerOverlay:
         for i, k in enumerate(keys):
             v     = data[k]; zh = EV_KEY_ZH.get(k, k); color = EV_COLORS.get(k, '#888888')
             y0    = i * (bar_h + gap)
-            c.create_rectangle(label_w, y0, w, y0 + bar_h, fill='#1A1A2A', outline='')
+            c.create_rectangle(label_w, y0, w, y0 + bar_h, fill=BG3, outline='')
             bar_w = int((v - v_min) / v_range * (w - label_w - 2))
             if bar_w > 0:
                 c.create_rectangle(label_w, y0, label_w + bar_w, y0 + bar_h,
@@ -1109,44 +1114,44 @@ class PokerOverlay:
 
     def _build_action_history(self):
         """P2.2：街道行動紀錄 + 對手行動快速輸入按鈕。"""
-        outer = tk.Frame(self._content_frame, bg='#080C12')
+        outer = tk.Frame(self._content_frame, bg=BG2)
         outer.pack(fill='x', padx=6, pady=(2, 0))
 
         # 標題 + 清除鈕
-        hdr = tk.Frame(outer, bg='#080C12')
+        hdr = tk.Frame(outer, bg=BG2)
         hdr.pack(fill='x')
-        tk.Label(hdr, text="街道行動", bg='#080C12', fg='#3A4A5A',
+        tk.Label(hdr, text="街道行動", bg=BG2, fg=DIM,
                  font=('Consolas', 7, 'bold')).pack(side='left', padx=(4, 0))
-        tk.Button(hdr, text="清除", bg='#1A1A2A', fg='#445566',
+        tk.Button(hdr, text="清除", bg=BG3, fg='#2A3A4A',
                   font=('Consolas', 6), relief='flat', cursor='hand2',
                   padx=4, pady=0,
                   command=self.clear_action_log).pack(side='right', padx=2)
 
         # 每街行動顯示
-        streets_frame = tk.Frame(outer, bg='#080C12')
+        streets_frame = tk.Frame(outer, bg=BG2)
         streets_frame.pack(fill='x', pady=(1, 0))
         self._street_labels: dict = {}
         for s in ['翻前', '翻牌', '轉牌', '河牌']:
-            row = tk.Frame(streets_frame, bg='#080C12')
+            row = tk.Frame(streets_frame, bg=BG2)
             row.pack(fill='x')
-            tk.Label(row, text=f"{s}:", bg='#080C12', fg='#2A3A4A',
+            tk.Label(row, text=f"{s}:", bg=BG2, fg='#2A3440',
                      font=('Consolas', 6), width=4, anchor='e').pack(side='left', padx=(2, 2))
-            lbl = tk.Label(row, text="", bg='#080C12', fg='#4A6A8A',
+            lbl = tk.Label(row, text="", bg=BG2, fg='#3A5A7A',
                            font=('Consolas', 6), anchor='w')
             lbl.pack(side='left', fill='x', expand=True)
             self._street_labels[s] = lbl
 
         # 對手行動快速輸入（P2.2 核心新增）
-        v_row = tk.Frame(outer, bg='#080C12')
+        v_row = tk.Frame(outer, bg=BG2)
         v_row.pack(fill='x', pady=(3, 2))
-        tk.Label(v_row, text="敵:", bg='#080C12', fg='#3A4A5A',
+        tk.Label(v_row, text="敵:", bg=BG2, fg=DIM,
                  font=('Consolas', 7), width=3).pack(side='left', padx=(2, 2))
         for zh, orig_bg, fg in [
-            ('棄', '#3A1A1A', '#FF6666'),
-            ('過', '#222222', '#888888'),
-            ('跟', '#1A2A3A', '#4FC3F7'),
-            ('加', '#1A3A1A', '#56D364'),
-            ('全', '#3A2A1A', '#FFD700'),
+            ('棄', '#200E0E', '#8A3030'),
+            ('過', '#141414', '#3A4040'),
+            ('跟', '#101A22', '#2A6080'),
+            ('加', '#122216', '#2E7048'),
+            ('全', '#1C1008', '#907020'),
         ]:
             b = tk.Button(v_row, text=zh, bg=orig_bg, fg=fg,
                           font=('Consolas', 8, 'bold'), relief='flat', cursor='hand2',
@@ -1184,7 +1189,7 @@ class PokerOverlay:
 
     def _build_status(self):
         self._status_label = tk.Label(self._content_frame, text="尚未載入模型",
-                                       bg=BG, fg="#FF6666", font=("Consolas", 8))
+                                       bg=BG, fg="#883030", font=("Consolas", 8))
         self._status_label.pack(pady=3)
 
     # ═══════════════════════════════════════════════════════════════
@@ -1264,9 +1269,9 @@ class PokerOverlay:
     def update_hand_type(self, name_zh: str, top_pct: int, strength_level: int):
         if not name_zh:
             self._hand_type_lbl.config(text=''); self._hand_pct_lbl.config(text=''); return
-        colors = {9:'#FFD700', 8:'#FFD700', 7:'#FF9F43', 6:'#56D364',
-                  5:'#56D364', 4:'#4FC3F7', 3:'#AADDAA', 2:'#CCCCCC', 1:'#888888'}
-        self._hand_type_lbl.config(text=name_zh, fg=colors.get(strength_level, '#AAAAAA'))
+        colors = {9:'#907020', 8:'#907020', 7:'#7A4010', 6:'#2E7A48',
+                  5:'#2E7A48', 4:'#2A6A8A', 3:'#3A5A4A', 2:'#404848', 1:DIM}
+        self._hand_type_lbl.config(text=name_zh, fg=colors.get(strength_level, DIM))
         self._hand_pct_lbl.config(text=f'前 {top_pct}%')
 
     def update_mdf(self, call_amount: int, pot: int):
@@ -1319,7 +1324,7 @@ class PokerOverlay:
         self._outs_label.config(text=current + '  |  ' + text if current and text else text or current)
 
     def set_status(self, text: str, ok: bool = True):
-        self._status_label.config(text=text, fg="#44FF88" if ok else "#FF6666")
+        self._status_label.config(text=text, fg="#2E7A48" if ok else "#883030")
 
     def flash_detect(self, found: int):
         btn = getattr(self, '_detect_btn', None)

@@ -215,6 +215,7 @@ class HoldemAssistant:
             'F7': self._force_detect,
             'SCREEN': self._open_screen_picker,
             'PREVIEW': self._preview_detect,
+            'MODE_TOGGLE': self._on_mode_toggle,
         }
 
         self._bind_hotkeys()
@@ -391,6 +392,19 @@ class HoldemAssistant:
     def _force_detect(self):
         if not self._manual_mode:
             threading.Thread(target=self._detect_once, daemon=True).start()
+
+    def _on_mode_toggle(self, detect_on: bool):
+        """標題列「手動/偵測」切換回調 — 實際控制偵測迴圈。"""
+        if detect_on:
+            # 切到偵測模式：若迴圈沒跑就啟動
+            if self._manual_mode:
+                self._manual_mode = False
+                threading.Thread(target=self._detection_loop, daemon=True).start()
+                print('[Mode] 切換為自動偵測')
+        else:
+            # 切回手動模式：停止迴圈（靠 _manual_mode flag，迴圈自己會停）
+            self._manual_mode = True
+            print('[Mode] 切換為手動輸入')
 
     def _preview_detect(self):
         """截圖 + 偵測，先開視窗再背景處理。"""
@@ -590,9 +604,10 @@ class HoldemAssistant:
             self.overlay._root.after(0, lambda: self.overlay.flash_detect(0))
 
     def _detection_loop(self):
-        while self._running:
+        while self._running and not self._manual_mode:
             self._detect_once()
             time.sleep(CONFIG.ui.refresh_interval_ms / 1000)
+        print('[Mode] 偵測迴圈已停止')
 
     # ── analysis tick ─────────────────────────────────────────────────────────
 
