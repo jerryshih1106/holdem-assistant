@@ -12,6 +12,18 @@ Keyboard shortcuts:
   ESC — Quit
 """
 
+# macOS segfault 預防：必須在所有其他 import 之前設定
+import sys, os
+if sys.platform == 'darwin':
+    # 防止 PyTorch/OpenMP fork 衝突（SIGBUS/SIGSEGV 最常見原因）
+    os.environ.setdefault('OBJC_DISABLE_INITIALIZE_FORK_SAFETY', 'YES')
+    # 強制 PyTorch 用 CPU，避免 MPS 初始化 segfault
+    os.environ.setdefault('PYTORCH_ENABLE_MPS_FALLBACK', '1')
+    os.environ.setdefault('CUDA_VISIBLE_DEVICES', '')
+    # 防止 OpenMP 多執行緒衝突
+    os.environ.setdefault('OMP_NUM_THREADS', '1')
+    os.environ.setdefault('MKL_NUM_THREADS', '1')
+
 import threading
 import time
 import tkinter as tk

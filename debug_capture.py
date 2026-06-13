@@ -33,14 +33,17 @@ def cmd_save(region=None):
 
 def cmd_preview(region=None):
     sc = ScreenCapture(region=region)
-    print("即時預覽中，按 q 離開...")
-    while True:
-        frame = sc.grab()
-        preview = cv2.resize(frame, (960, 540))
-        cv2.imshow("debug_capture — press q to quit", preview)
-        if cv2.waitKey(200) & 0xFF == ord('q'):
-            break
-    cv2.destroyAllWindows()
+    import time
+    print("截圖中，存成 _preview_latest.png（每 0.5 秒更新一次），Ctrl+C 停止...")
+    try:
+        while True:
+            frame = sc.grab()
+            preview = cv2.resize(frame, (960, 540))
+            cv2.imwrite("_preview_latest.png", preview)
+            print(f"\r[{time.strftime('%H:%M:%S')}] 已存 _preview_latest.png  {frame.shape[1]}x{frame.shape[0]}", end="")
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        print("\n停止")
     sc.close()
 
 
@@ -60,12 +63,6 @@ def cmd_window(keyword):
     path = "debug_capture.png"
     cv2.imwrite(path, frame)
     print(f"已存至 {path}  ({frame.shape[1]}x{frame.shape[0]})")
-    preview = cv2.resize(frame, (min(960, frame.shape[1]), min(540, frame.shape[0])))
-    cv2.imshow(f"{title} — press q to quit", preview)
-    print("按 q 關閉預覽")
-    while cv2.waitKey(100) & 0xFF != ord('q'):
-        pass
-    cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":

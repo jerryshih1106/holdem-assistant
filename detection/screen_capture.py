@@ -198,10 +198,12 @@ class ScreenCapture:
         return cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
 
     def grab_with_preview(self) -> np.ndarray:
+        # cv2.imshow() 在 macOS 上與 tkinter 共存會 segfault，改儲存成檔案
         frame = self.grab()
-        preview = cv2.resize(frame, (960, 540))
-        cv2.imshow("Screen Preview", preview)
-        cv2.waitKey(1)
+        try:
+            cv2.imwrite("_preview_latest.png", cv2.resize(frame, (960, 540)))
+        except Exception:
+            pass
         return frame
 
     @staticmethod
