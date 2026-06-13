@@ -48,7 +48,12 @@ class CardDetector:
         try:
             from ultralytics import YOLO
             self._model = YOLO(self._model_path)
-            print(f"[Detector] Loaded model: {self._model_path}")
+            # macOS: MPS (Metal) 在部分 ultralytics 版本會 segfault，強制 CPU
+            if os.uname().sysname == 'Darwin' if hasattr(os, 'uname') else False:
+                self._device = 'cpu'
+            else:
+                self._device = None  # ultralytics 自動選
+            print(f"[Detector] Loaded model: {self._model_path} (device={self._device or 'auto'})")
         except Exception as e:
             print(f"[Detector] Failed to load model: {e}")
 
@@ -65,12 +70,11 @@ class CardDetector:
 
         scaled, sx, sy = _prescale(frame)
 
-        results = self._model.predict(
-            source=scaled,
-            conf=self._conf,
-            iou=self._iou,
-            verbose=False,
-        )
+        predict_kwargs = dict(
+            source=scaled, conf=self._conf, iou=self._iou, verbose=False)
+        if getattr(self, '_device', None):
+            predict_kwargs['device'] = self._device
+        results = self._model.predict(**predict_kwargs)
 
         detections: List[Detection] = []
         h, w = scaled.shape[:2]
