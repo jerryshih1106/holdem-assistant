@@ -124,16 +124,7 @@ class PokerOverlay:
         self._root.title("德州撲克助手")
 
         import sys as _sys
-        if _sys.platform == 'darwin':
-            # overrideredirect 在 macOS 會把視窗送到隱形圖層；
-            # 用 MacWindowStyle 'plain' + 'none' 實現無標題列但可見的視窗
-            try:
-                self._root.tk.call(
-                    '::tk::unsupported::MacWindowStyle',
-                    'style', self._root._w, 'plain', 'none')
-            except Exception:
-                pass  # 舊版 Tk 可能不支援，降級保持預設標題列
-        else:
+        if _sys.platform != 'darwin':
             self._root.overrideredirect(True)
 
         self._root.attributes("-topmost", True)
@@ -176,6 +167,21 @@ class PokerOverlay:
         self._bind_position_keys()
         self._root.update_idletasks()
         self._root.lift()
+        self._root.focus_force()
+        # macOS：Python 行程不是 active app，視窗會躲在 Terminal 後面
+        import sys as _sys2
+        if _sys2.platform == 'darwin':
+            try:
+                import AppKit as _ak
+                _ak.NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+            except Exception:
+                try:
+                    import subprocess as _sp, os as _os
+                    _sp.Popen(['osascript', '-e',
+                        f'tell application "System Events" to set frontmost of '
+                        f'first process whose unix id is {_os.getpid()} to true'])
+                except Exception:
+                    pass
 
     # ═══════════════════════════════════════════════════════════════
     # 建立 UI
