@@ -86,21 +86,34 @@ def capture_window(hwnd: int, region: Optional[Tuple[int,int,int,int]] = None) -
         return None
 
 
-def _check_mac_screen_permission():
-    """macOS：檢查 Screen Recording 權限，未授權給出提示。"""
+def check_mac_screen_permission() -> bool:
+    """macOS：用 CGPreflightScreenCaptureAccess 確認螢幕錄製權限。
+    回傳 True=已授權，False=未授權。
+    沒授權時同時觸發系統請求彈窗讓使用者授權。
+    """
     if not _IS_MAC:
-        return
+        return True
     try:
-        import mss as _mss
-        with _mss.mss() as sct:
-            m = sct.monitors[1]
-            test = sct.grab({"left": 0, "top": 0, "width": 1, "height": 1})
-            arr = np.array(test)
-            if arr.shape[0] == 0:
-                raise RuntimeError("empty")
+        import ctypes, ctypes.util
+        cg = ctypes.CDLL(ctypes.util.find_library('CoreGraphics'))
+        # CGPreflightScreenCaptureAccess：macOS 11+ 才有；回傳 bool
+        cg.CGPreflightScreenCaptureAccess.restype = ctypes.c_bool
+        has_perm = cg.CGPreflightScreenCaptureAccess()
+        if not has_perm:
+            # 觸發系統授權彈窗（使用者點允許後需重啟 Terminal）
+            cg.CGRequestScreenCaptureAccess.restype = ctypes.c_bool
+            cg.CGRequestScreenCaptureAccess()
+            print('[Capture] ⚠️  macOS 螢幕錄製權限未開啟！')
+            print('  → 系統設定 → 隱私權與安全性 → 螢幕錄製')
+            print('  → 勾選 Terminal（或 iTerm2）→ 重新啟動 Terminal 再執行')
+        return has_perm
     except Exception:
-        print("[Capture] macOS Screen Recording 權限未開啟！")
-        print("  → 系統設定 → 隱私權與安全性 → 螢幕錄製 → 開啟 Terminal（或 Python）")
+        # CGPreflightScreenCaptureAccess 在 macOS 10.x 不存在，直接略過
+        return True
+
+
+def _check_mac_screen_permission():
+    check_mac_screen_permission()
 
 
 class ScreenCapture:

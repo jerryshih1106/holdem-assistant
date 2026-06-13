@@ -411,6 +411,31 @@ class HoldemAssistant:
         """截圖 + 偵測，先開視窗再背景處理。"""
         import cv2
         from PIL import Image, ImageTk
+        import sys as _sys_p
+
+        # macOS: 先確認螢幕錄製權限，沒有就顯示說明並停止
+        if _sys_p.platform == 'darwin':
+            from detection.screen_capture import check_mac_screen_permission
+            if not check_mac_screen_permission():
+                w_err = tk.Toplevel(self.overlay._root)
+                w_err.title('需要螢幕錄製權限')
+                w_err.attributes('-topmost', True)
+                w_err.geometry('480x200+200+200')
+                w_err.configure(bg='#1A1A2E')
+                tk.Label(w_err, text='⚠  macOS 螢幕錄製權限未開啟', bg='#1A1A2E',
+                         fg='#C04040', font=('Consolas', 13, 'bold')).pack(pady=(20, 8))
+                tk.Label(w_err,
+                         text='1. 已彈出系統授權對話框 → 點「允許」\n'
+                              '2. 系統設定 → 隱私權與安全性 → 螢幕錄製\n'
+                              '   → 勾選 Terminal（或 Python）\n'
+                              '3. 完全關閉並重新開啟 Terminal\n'
+                              '4. 再次執行 python main.py',
+                         bg='#1A1A2E', fg='#A0B8C0',
+                         font=('Consolas', 10), justify='left').pack(padx=20)
+                tk.Button(w_err, text='關閉', command=w_err.destroy,
+                          bg='#203040', fg='#C0D0E0',
+                          font=('Consolas', 10), relief='flat', padx=12, pady=4).pack(pady=12)
+                return
 
         # 先在主執行緒開視窗
         w = tk.Toplevel(self.overlay._root)
