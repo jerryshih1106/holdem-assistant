@@ -33,7 +33,7 @@ class UIConfig:
     overlay_height: int = 420
     overlay_x: int = 20
     overlay_y: int = 20
-    refresh_interval_ms: int = 500  # Detection loop interval
+    refresh_interval_ms: int = 150  # Detection loop interval (P2: 500→150ms)
 
 
 @dataclass

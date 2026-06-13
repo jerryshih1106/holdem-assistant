@@ -197,15 +197,92 @@ def _adjust_range_for_stack(
     return base_freq
 
 
+# ── P0：動態範圍輔助函式 ──────────────────────────────────────────────────────
+
+def _clamp(v: float, lo: float = 0.0, hi: float = 1.0) -> float:
+    return max(lo, min(hi, v))
+
+
+def _f2s_multiplier(f2s_pct: Optional[float]) -> float:
+    """
+    根據對手遇偷盲棄牌率（F2S%）計算範圍擴縮乘數。
+
+    基準 F2S ≈ 60%：
+      F2S > 60% → 對手折疊更多 → 可以偷更多 → 乘數 > 1
+      F2S < 60% → 對手跟注太多 → 需要緊縮 → 乘數 < 1
+
+    公式：mult = 1 + (f2s - 60) / 100 * 2.5，上下各限制在 [0.5, 1.5]
+    """
+    if f2s_pct is None:
+        return 1.0
+    f2s = _clamp(f2s_pct, 0, 100)
+    mult = 1.0 + (f2s - 60.0) / 100.0 * 2.5
+    return _clamp(mult, 0.5, 1.5)
+
+
+def _iso_advice(
+    hand: str, hs: str, hero_pos: str,
+    base_freq: float, stack_bb: float,
+    num_limpers: int, f2s_mult: float,
+) -> tuple:
+    """
+    ISO 加注模式（底池有 limper 時）。
+
+    核心邏輯：
+    - limper 範圍寬弱 → 有利剝削 → 用更大注碼 ISO
+    - 純牌力強（premium/strong）永遠 ISO
+    - speculative 手牌受益於多人底池隱含賠率 → 保留
+    - marginal 手牌在多人底池中缺乏保護，不 ISO
+
+    注碼：標準加注 + 每 limper 加 1BB（防 limp/call）
+    """
+    # ISO 加注尺寸
+    base_size = 2.5 if hero_pos in ('BTN', 'SB', 'CO') else 3.0
+    iso_size  = round(base_size + num_limpers * 1.0, 1)
+    if stack_bb <= 25:
+        iso_size = min(stack_bb, iso_size)
+
+    # limper 優勢加成：premium/strong 永遠 ISO；speculative 加頻率
+    if hs == 'premium':
+        iso_freq = 1.0
+    elif hs == 'strong':
+        iso_freq = 0.95
+    elif hs == 'medium':
+        iso_freq = _clamp(base_freq * f2s_mult * 1.2)
+    elif hs == 'speculative':
+        # 隱含賠率上升，小對小 suited connector 可 ISO
+        iso_freq = _clamp(base_freq * f2s_mult * 0.9)
+    else:  # marginal
+        iso_freq = _clamp(base_freq * f2s_mult * 0.5)
+
+    limper_str = f'{num_limpers} 個 limper'
+    if iso_freq >= 0.7:
+        action = 'ISO加注'
+        reason = (f'ISO 加注 {iso_size}BB（{limper_str}範圍弱，'
+                  f'{hs} 手牌主動剝削）')
+    elif iso_freq >= 0.3:
+        action = 'ISO加注'
+        reason = (f'混合 ISO {iso_size}BB（{limper_str}，{iso_freq:.0%} 頻率）')
+    else:
+        action = '棄牌'
+        iso_size = 0.0
+        reason = f'面對 {limper_str} 此手牌 ISO 無優勢，棄牌'
+
+    return iso_freq, iso_size, action, reason
+
+
 # ── 主函數 ────────────────────────────────────────────────────────────────────
 
 def advise_preflop(
-    hand:        str,
-    hero_pos:    str,          # BTN/CO/HJ/UTG/SB/BB
-    villain_pos: str = '',     # 開牌者/3-bet者位置（RFI 時可省略）
-    situation:   str = 'auto', # 'rfi'/'vs_open'/'vs_3bet'/'bb_defense'/'auto'
-    stack_bb:    float = 100.0,
-    open_size_bb: float = 2.5, # 對手開牌注大小
+    hand:                str,
+    hero_pos:            str,           # BTN/CO/HJ/UTG/SB/BB
+    villain_pos:         str   = '',    # 開牌者/3-bet者位置（RFI 時可省略）
+    situation:           str   = 'auto',
+    stack_bb:            float = 100.0,
+    open_size_bb:        float = 2.5,   # 對手開牌注大小
+    # P0 新增：動態範圍參數
+    opp_fold_to_steal:   Optional[float] = None,  # 對手遇偷盲棄牌率 0-100（來自 HUD）
+    num_limpers:         int   = 0,     # 已入池 limp 人數（>0 觸發 ISO 模式）
 ) -> PreflopAdvice:
     """
     統一翻前決策入口。
@@ -218,11 +295,14 @@ def advise_preflop(
         stack_bb:    有效籌碼
         open_size_bb: 對手開牌注大小（影響 3-bet 尺寸計算）
     """
-    hand = _normalize_hand(hand)
-    hero_pos  = hero_pos.upper()
+    hand        = _normalize_hand(hand)
+    hero_pos    = hero_pos.upper()
     villain_pos = villain_pos.upper() if villain_pos else ''
-    hs = _hand_strength(hand)
-    s_note = _stack_note(stack_bb)
+    hs          = _hand_strength(hand)
+    s_note      = _stack_note(stack_bb)
+
+    # F2S 調整乘數（對手棄牌越多可越寬；越少需越緊）
+    f2s_mult = _f2s_multiplier(opp_fold_to_steal)
 
     # ── 自動判斷情境 ────────────────────────────────────────────────
     if situation == 'auto':
@@ -236,12 +316,31 @@ def advise_preflop(
             situation = 'vs_open'
 
     # ─────────────────────────────────────────────────────────────────
-    # 1. RFI（首次開牌）
+    # 1. RFI（首次開牌）/ ISO 加注（有 limper 時）
     # ─────────────────────────────────────────────────────────────────
     if situation == 'rfi':
         rfi_range = _RFI_RANGE.get(hero_pos, RFI_CO)
-        freq = rfi_range.get(hand, 0.0)
-        freq = _adjust_range_for_stack(hand, freq, stack_bb, 'rfi')
+        freq      = rfi_range.get(hand, 0.0)
+        freq      = _adjust_range_for_stack(hand, freq, stack_bb, 'rfi')
+
+        # ── ISO 加注模式（有 limper）─────────────────────────────────
+        if num_limpers > 0:
+            freq, raise_bb, action, reason = _iso_advice(
+                hand, hs, hero_pos, freq, stack_bb, num_limpers, f2s_mult)
+            key_hands = _top_hands(rfi_range, n=10)
+            return PreflopAdvice(
+                hand=hand, hero_pos=hero_pos, villain_pos='', situation='rfi',
+                stack_bb=stack_bb, action=action, action_freq=freq,
+                raise_size_bb=raise_bb if action == 'ISO加注' else 0.0,
+                reasoning=reason,
+                alt_action='棄牌' if action == 'ISO加注' else '',
+                alt_freq=1 - freq,
+                in_range=freq > 0,
+                hand_strength=hs, stack_note=s_note, key_hands=key_hands,
+            )
+
+        # ── 標準 RFI + F2S 動態調整 ──────────────────────────────────
+        freq = _clamp(freq * f2s_mult)
 
         # 開牌注尺寸：BTN/SB 2.5x，其他 3x
         if hero_pos in ('BTN', 'SB'):
@@ -254,14 +353,22 @@ def advise_preflop(
 
         key_hands = _top_hands(rfi_range, n=10)
 
+        # F2S 提示
+        f2s_note = ''
+        if opp_fold_to_steal is not None:
+            if opp_fold_to_steal > 70:
+                f2s_note = f'（對手F2S {opp_fold_to_steal:.0f}%高，可放寬偷盲）'
+            elif opp_fold_to_steal < 50:
+                f2s_note = f'（對手F2S {opp_fold_to_steal:.0f}%低，建議收緊）'
+
         if freq >= 0.8:
-            action, reason = '開牌', f'{hero_pos} 位置強牌（{hs}），以 {raise_bb}BB 開牌'
+            action, reason = '開牌', f'{hero_pos} 強牌（{hs}），{raise_bb}BB 開牌{f2s_note}'
         elif freq >= 0.3:
-            action, reason = '開牌', f'{hero_pos} 位置混合策略開牌（頻率 {freq:.0%}）'
+            action, reason = '開牌', f'{hero_pos} 混合開牌（{freq:.0%}）{f2s_note}'
         elif freq > 0:
-            action, reason = '棄牌', f'此手牌在 {hero_pos} 位置為邊緣牌（頻率 {freq:.0%}），建議棄牌'
+            action, reason = '棄牌', f'邊緣牌（{freq:.0%}）{f2s_note}，建議棄牌'
         else:
-            action, reason = '棄牌', f'此手牌不在 {hero_pos} 開牌範圍'
+            action, reason = '棄牌', f'不在 {hero_pos} 開牌範圍{f2s_note}'
 
         return PreflopAdvice(
             hand=hand, hero_pos=hero_pos, villain_pos='', situation='rfi',

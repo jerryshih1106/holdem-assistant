@@ -1,4 +1,9 @@
-"""翻前範圍表 — GTO Wizard 風格行動樹 + 13×13 手牌格（支援 6人/9人桌）。"""
+"""翻前範圍表 — GTO Wizard 風格行動樹 + 13×13 手牌格（支援 6人/9人桌）。
+
+v2 改進（參考 GTO Wizard / PioSOLVER）：
+  9. 懸停詳情 — hover 顯示 combo 數/頻率/混合策略分解
+  10. EV 熱圖模式 — 切換頻率 ↔ EV 熱圖著色
+"""
 
 import tkinter as tk
 from typing import Optional, Dict
@@ -124,6 +129,32 @@ def _cell_fg(freq, hl):
     if freq >= 0.1:  return '#FF7B54'
     return '#484F58'
 
+# EV 熱圖：依 raise_freq 估算相對 EV（-1 到 +1 映射到顏色）
+def _ev_cell_bg(raise_f, call_f, hl):
+    if hl: return '#FFFFFF'
+    score = raise_f * 1.0 + call_f * 0.4   # 簡化 EV 估算
+    if score >= 0.7:  return '#0D3B1A'
+    if score >= 0.4:  return '#1A3B10'
+    if score >= 0.15: return '#3B3000'
+    if score > 0:     return '#3B1500'
+    return '#1C2128'
+
+def _ev_cell_fg(raise_f, call_f, hl):
+    if hl: return '#000000'
+    score = raise_f * 1.0 + call_f * 0.4
+    if score >= 0.7:  return '#00FF88'
+    if score >= 0.4:  return '#88FF44'
+    if score >= 0.15: return '#FFD700'
+    if score > 0:     return '#FF8C00'
+    return '#484F58'
+
+# 牌型組合數
+_COMBO_COUNT = {
+    's': 4,   # suited
+    'o': 12,  # offsuit
+    'p': 6,   # pair
+}
+
 CELL, PAD, HDR = 34, 2, 20
 
 
@@ -143,12 +174,15 @@ class RangePanel:
         self._hero_action: str           = 'open'
         self._highlight:   Optional[tuple] = None
 
+        self._ev_mode = False   # False=頻率熱圖，True=EV熱圖
+
         self._build_table_toggle()
         self._build_action_tree()
         self._sep()
         self._build_hand_filter()
         self._build_grid()
         self._build_info()
+        self._build_hover_detail()
         self._refresh()
 
     # ══════════════════════════════════════════════════════════════
@@ -276,7 +310,7 @@ class RangePanel:
             self._hero_pos_btns[pos] = btn
 
         # ── 行4: Hero 行動 ───────────────────────────────────────
-        row4 = tk.Frame(outer, bg=BG2)
+        row4 = tk.Frame(self._tree_outer, bg=BG2)
         row4.pack(fill='x', padx=8, pady=(4, 2))
         tk.Label(row4, text='行動', bg=BG2, fg=DIM,
                  font=('Consolas', 8), width=7, anchor='w').pack(side='left')
@@ -295,10 +329,11 @@ class RangePanel:
             self._action_btns[key] = btn
 
         # ── 情境說明 ─────────────────────────────────────────────
-        self._scenario_lbl = tk.Label(
-            outer, text='', bg=BG2, fg=ACCENT,
-            font=('Consolas', 9, 'bold'), anchor='w')
-        self._scenario_lbl.pack(fill='x', padx=8, pady=(4, 2))
+        if not hasattr(self, '_scenario_lbl'):
+            self._scenario_lbl = tk.Label(
+                self._tree_outer, text='', bg=BG2, fg=ACCENT,
+                font=('Consolas', 9, 'bold'), anchor='w')
+            self._scenario_lbl.pack(fill='x', padx=8, pady=(4, 2))
 
         self._update_action_tree_ui()
 
@@ -400,6 +435,13 @@ class RangePanel:
                   font=('Consolas', 8), relief='flat', cursor='hand2',
                   command=self._reset_tree).pack(side='right', padx=8)
 
+        # EV 熱圖切換按鈕（PioSOLVER 風格）
+        self._ev_mode_btn = tk.Button(
+            bar, text='EV 熱圖', bg='#1C2128', fg=DIM,
+            font=('Consolas', 8), relief='flat', cursor='hand2',
+            command=self._toggle_ev_mode)
+        self._ev_mode_btn.pack(side='right', padx=4)
+
     def _reset_tree(self):
         self._opener    = None
         self._three_bet = None
@@ -453,7 +495,7 @@ class RangePanel:
 
     def _build_info(self):
         info = tk.Frame(self._win, bg=BG2, pady=4)
-        info.pack(fill='x', padx=4, pady=(0, 4))
+        info.pack(fill='x', padx=4, pady=(0, 0))
         self._range_pct_lbl = tk.Label(
             info, text='', bg=BG2, fg=ACCENT,
             font=('Consolas', 9, 'bold'))
@@ -466,6 +508,16 @@ class RangePanel:
             info, text='', bg=BG2, fg=DIM,
             font=('Consolas', 8))
         self._hover_lbl.pack(side='right', padx=8)
+
+    def _build_hover_detail(self):
+        """懸停詳情面板（GTO Wizard 風格：combo/頻率/混合策略分解）。"""
+        self._detail_frame = tk.Frame(self._win, bg='#0A0F1A', pady=4)
+        self._detail_frame.pack(fill='x', padx=4, pady=(0, 4))
+        self._detail_lbl = tk.Label(
+            self._detail_frame, text='滑鼠懸停手牌格查看詳情',
+            bg='#0A0F1A', fg='#3A4A5A',
+            font=('Consolas', 8), anchor='w')
+        self._detail_lbl.pack(fill='x', padx=8)
 
     # ══════════════════════════════════════════════════════════════
     # 刷新邏輯
@@ -481,11 +533,18 @@ class RangePanel:
         for (row, col), (rect, txt, hand) in self._cells.items():
             freq = rng.get(hand, 0.0)
             hl   = (self._highlight == (row, col))
+            if self._ev_mode and scenario:
+                raise_f, call_f = get_mixed_action(hand, scenario)
+                bg = _ev_cell_bg(raise_f, call_f, hl)
+                fg = _ev_cell_fg(raise_f, call_f, hl)
+            else:
+                bg = _cell_bg(freq, hl)
+                fg = _cell_fg(freq, hl)
             self._canvas.itemconfig(
-                rect, fill=_cell_bg(freq, hl),
+                rect, fill=bg,
                 outline='#FFFFFF' if hl else BORDER,
                 width=2 if hl else 1)
-            self._canvas.itemconfig(txt, fill=_cell_fg(freq, hl))
+            self._canvas.itemconfig(txt, fill=fg)
 
             # 混合策略彩色 bar（格子底部 4px）
             if freq > 0 and scenario and not hl:
@@ -564,13 +623,43 @@ class RangePanel:
         else:
             self._hand_action_lbl.config(text='')
 
+    def _toggle_ev_mode(self):
+        """切換頻率熱圖 / EV 熱圖（PioSOLVER 風格）。"""
+        self._ev_mode = not self._ev_mode
+        if self._ev_mode:
+            self._ev_mode_btn.config(bg='#1A3A5C', fg='#4FC3F7', relief='solid', bd=1)
+        else:
+            self._ev_mode_btn.config(bg='#1C2128', fg=DIM, relief='flat', bd=0)
+        self._refresh()
+
     def _on_hover(self, hand: str):
         scenario = self._get_current_scenario()
         if not scenario:
+            self._detail_lbl.config(text='— 未選擇情境 —', fg='#3A4A5A')
             return
-        freq = get_frequency(hand, scenario)
+        freq       = get_frequency(hand, scenario)
+        raise_f, call_f = get_mixed_action(hand, scenario)
+        fold_f     = max(0.0, 1.0 - freq)
+
+        # 組合數
+        if hand.endswith('s'):    combos = 4
+        elif hand.endswith('o'):  combos = 12
+        else:                      combos = 6
+        in_combos  = round(combos * freq)
+
         self._hover_lbl.config(
             text=f'{hand}: {"遊玩" if freq > 0 else "棄牌"}  {int(freq * 100)}%')
+
+        # 詳情面板（GTO Wizard 風格）
+        if freq > 0:
+            r_pct = int(raise_f * 100)
+            c_pct = int(call_f  * 100)
+            f_pct = max(0, 100 - r_pct - c_pct)
+            detail = (f'{hand}  ▸  {in_combos}/{combos} 組合（{int(freq*100)}% 遊玩）    '
+                      f'加注 {r_pct}%  跟注 {c_pct}%  棄牌 {f_pct}%')
+            self._detail_lbl.config(text=detail, fg='#8ABADF')
+        else:
+            self._detail_lbl.config(text=f'{hand}  —  棄牌（0 組合進入範圍）', fg='#664444')
 
     # ══════════════════════════════════════════════════════════════
     # 外部 API（main.py 呼叫）
